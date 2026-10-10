@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 
 use super::events::permission_request;
 use super::server::Conn;
-use crate::backend::{ModelInfo, ModelRef, PermissionReply, PermissionRequest, ProjectRef, SessionSummary};
+use crate::backend::{
+    ModelInfo, ModelRef, PermissionReply, PermissionRequest, ProjectRef, SessionSummary, TranscriptItem,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -228,6 +230,14 @@ impl Client<'_> {
         last_assistant_text(&res.data)
     }
 
+    pub async fn transcript(&self, id: &str) -> Result<Vec<TranscriptItem>> {
+        let req = self
+            .request(Method::GET, &format!("/api/session/{id}/message"))
+            .query(&[("order", "desc"), ("limit", "120")]);
+        let res: Data<Vec<Value>> = Self::send(req).await?.json().await?;
+        Ok(transcript_items(&res.data))
+    }
+
     pub async fn pending_permissions(&self, id: &str) -> Result<Vec<PermissionRequest>> {
         let res: Data<Vec<Value>> =
             Self::send(self.request(Method::GET, &format!("/api/session/{id}/permission"))).await?.json().await?;
@@ -277,6 +287,41 @@ impl Client<'_> {
     }
 }
 
+fn assistant_text(message: &Value) -> String {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|p| p.get("text").and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .unwrap_or_default()
+}
+
+/// `messages` is newest first; the result is oldest first.
+pub fn transcript_items(messages: &[Value]) -> Vec<TranscriptItem> {
+    let mut items: Vec<TranscriptItem> = messages
+        .iter()
+        .filter_map(|message| {
+            let time = message.get("time").and_then(|t| t.get("created")).and_then(Value::as_f64).unwrap_or(0.0) as i64;
+            let (user, text) = match message.get("type").and_then(Value::as_str)? {
+                "user" => (true, message.get("text").and_then(Value::as_str).unwrap_or_default().trim().to_string()),
+                "assistant" => (false, assistant_text(message)),
+                _ => return None,
+            };
+            (!text.is_empty()).then_some(TranscriptItem { user, text, time })
+        })
+        .collect();
+    items.reverse();
+    items
+}
+
 /// Keep the models an agent can run on: enabled, not deprecated, text out, tool use.
 pub fn agent_model(model: &Value) -> Option<ModelInfo> {
     let flag = |v: &Value, key: &str| v.get(key).and_then(Value::as_bool).unwrap_or(false);
@@ -303,20 +348,7 @@ pub fn last_assistant_text(messages: &[Value]) -> Result<String> {
         match message.get("type").and_then(Value::as_str) {
             Some("user") => break,
             Some("assistant") => {
-                let text = message
-                    .get("content")
-                    .and_then(Value::as_array)
-                    .map(|parts| {
-                        parts
-                            .iter()
-                            .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
-                            .filter_map(|p| p.get("text").and_then(Value::as_str))
-                            .map(str::trim)
-                            .filter(|t| !t.is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n\n")
-                    })
-                    .unwrap_or_default();
+                let text = assistant_text(message);
                 if !text.is_empty() {
                     return Ok(text);
                 }
@@ -341,6 +373,24 @@ pub fn last_assistant_text(messages: &[Value]) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn transcript_is_oldest_first_and_text_only() {
+        let messages = vec![
+            json!({"type":"idle","outcome":"succeeded","time":{"created":5}}),
+            json!({"type":"assistant","time":{"created":4},"content":[{"type":"text","text":"Four."}]}),
+            json!({"type":"assistant","time":{"created":3},"content":[{"type":"tool","name":"bash"}]}),
+            json!({"type":"user","time":{"created":2},"text":"what is two plus two"}),
+            json!({"type":"agent-switched","time":{"created":1},"agent":"jarvis"}),
+        ];
+        assert_eq!(
+            transcript_items(&messages),
+            vec![
+                TranscriptItem { user: true, text: "what is two plus two".into(), time: 2 },
+                TranscriptItem { user: false, text: "Four.".into(), time: 4 },
+            ]
+        );
+    }
 
     #[test]
     fn filters_agent_models() {

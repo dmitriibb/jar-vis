@@ -31,6 +31,8 @@ export interface Exchange {
   summary: string;
   details: string;
   pending: boolean;
+  /** The prompt came from the scheduler. */
+  scheduled: boolean;
   error: string | null;
   time: number;
 }
@@ -54,6 +56,8 @@ export interface Snapshot {
   history: Exchange[];
   permission: PermissionRequest | null;
   queued: number;
+  /** Scheduled prompts of every session, soonest first. */
+  tasks: ScheduledTask[];
   personality: string;
   /** `provider/id` of the model the next turn runs on. */
   model: string | null;
@@ -63,6 +67,21 @@ export interface Snapshot {
   sleepAfterMinutes: number;
   streamText: boolean;
   wizardDone: boolean;
+}
+
+export interface ScheduledTask {
+  id: string;
+  session: { id: string; directory: string };
+  sessionTitle: string | null;
+  prompt: string;
+  /** Milliseconds since the Unix epoch. */
+  created: number;
+  nextRun: number;
+  /** Set for repeating tasks. */
+  everyMinutes: number | null;
+  runs: number;
+  maxRuns: number | null;
+  expires: number | null;
 }
 
 export interface Toast {

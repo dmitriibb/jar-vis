@@ -107,6 +107,36 @@ These are handled by Jar-vis itself. Anything else is sent to the agent.
 Stop, mute and repeat count only when they are the whole utterance, so "stop the dev server" is still a prompt.
 The phrase lists are in the `[commands]` section of the config file.
 
+### The panel
+
+- **Session title ▾** switches between Jar-vis sessions, or starts a new one. The history of the session you switch
+  to is loaded from opencode.
+- **Model ▾** lists the models opencode offers and switches the current session to the one you pick. In the Jar-vis
+  workspace the choice is also remembered for new sessions.
+- **⏱** lists the scheduled tasks of every session, with a Cancel button for each.
+- **Copy** under an answer copies it. Selecting text and pressing Ctrl+C works too.
+
+### Scheduled tasks
+
+Ask for something to happen later or repeatedly, in your own words:
+
+- "In one hour, check whether my service is running."
+- "Check this issue every 15 minutes and tell me the status."
+- "At 18:30, remind me to check my soup."
+
+The agent schedules it, and when the time comes Jar-vis sends the stored prompt to the **session it was asked in**,
+marked as a scheduled prompt so the model knows the user is not typing it. The answer is shown and spoken like any
+other.
+
+- A task belongs to its session. If that session is not the one on screen, the task runs in the background and its
+  result is spoken and shown as a notification.
+- Repeating tasks stop after 24 hours unless you say otherwise ("for the next three hours", "five times").
+- Tasks run only while Jar-vis is running. A task that came due while it was closed or the machine slept fires once
+  when it is back; a repeating task then continues from that moment.
+- The answer to a scheduled prompt cannot schedule further tasks.
+- The rules the agent follows are in `assistant/agents/_schedule-rules.md`. Tasks are stored in `schedule.json`
+  next to the logs.
+
 ### Permissions
 
 When the agent asks to run a command or edit a file, the pet turns yellow and the panel shows **Allow once**,

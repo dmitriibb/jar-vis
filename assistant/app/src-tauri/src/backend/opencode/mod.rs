@@ -20,7 +20,7 @@ use self::client::Client;
 use self::server::Conn;
 use super::{
     AgentBackend, BackendEvent, BackendInfo, ModelInfo, ModelRef, PermissionReply, PermissionRequest, ProjectRef, SessionOpts, SessionRef,
-    SessionSummary,
+    SessionSummary, TranscriptItem,
 };
 use crate::config::OpencodeCfg;
 
@@ -257,6 +257,11 @@ impl AgentBackend for OpenCodeBackend {
     async fn last_assistant_text(&self, s: &SessionRef) -> Result<String> {
         let conn = self.conn()?;
         client!(self, conn).last_assistant_text(&s.id).await
+    }
+
+    async fn transcript(&self, s: &SessionRef) -> Result<Vec<TranscriptItem>> {
+        let conn = self.conn()?;
+        client!(self, conn).transcript(&s.id).await
     }
 
     async fn pending_permissions(&self, s: &SessionRef) -> Result<Vec<PermissionRequest>> {

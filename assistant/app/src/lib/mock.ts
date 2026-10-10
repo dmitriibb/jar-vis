@@ -15,18 +15,45 @@ let snapshot: Snapshot = {
   backend: { version: "2.0.26", url: "http://127.0.0.1:49374" },
   session: { id: "ses_mock123", title: "Checking the build", directory: "C:/projects/jar-vis/sessions", mode: "workspace", project: "sessions" },
   history: [
-    { transcript: "what's two plus two", summary: "Four.", details: "", pending: false, error: null, time: now - 300_000 },
+    { transcript: "what's two plus two", summary: "Four.", details: "", pending: false, scheduled: false, error: null, time: now - 300_000 },
     {
       transcript: "run the tests and tell me what failed",
       summary: "All 60 tests pass. Nothing failed.",
       details: "## Details\n\n- `cargo test --lib`: **60 passed**\n- Took 0.07 s\n\n```bash\ncargo test --lib\n```",
       pending: false,
+      scheduled: true,
       error: null,
       time: now - 60_000,
     },
   ],
   permission: null,
   queued: 0,
+  tasks: [
+    {
+      id: "task_1",
+      session: { id: "ses_mock123", directory: "C:/projects/jar-vis/sessions" },
+      sessionTitle: "Checking the build",
+      prompt: "Check whether the payment service is running and report its status.",
+      created: now - 600_000,
+      nextRun: now + 12 * 60_000,
+      everyMinutes: 15,
+      runs: 2,
+      maxRuns: null,
+      expires: now + 86_400_000,
+    },
+    {
+      id: "task_2",
+      session: { id: "ses_mock456", directory: "C:/projects/jar-vis/sessions" },
+      sessionTitle: "Deploy watch",
+      prompt: "Check if the deploy finished.",
+      created: now - 60_000,
+      nextRun: now + 58 * 60_000,
+      everyMinutes: null,
+      runs: 0,
+      maxRuns: null,
+      expires: null,
+    },
+  ],
   personality: "jarvis",
   model: "openai/gpt-6.1-sol",
   pet: "default",
@@ -94,6 +121,16 @@ export function install() {
           return config;
         case "set_muted":
           return set({ muted: args.muted as boolean });
+        case "cancel_task":
+          return set({ tasks: snapshot.tasks.filter((t) => t.id !== args.id) });
+        case "attach":
+          return set({
+            session: { ...snapshot.session!, id: String(args.sessionId), title: "Deploy watch" },
+            history: [],
+          });
+        case "copy_text":
+          console.debug("[mock] copied", args.text);
+          return;
         case "list_agent_models":
           return [
             { key: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", provider: "openai" },
@@ -121,7 +158,7 @@ export function install() {
         case "list_sessions":
           return [
             { id: "ses_mock123", title: "Checking the build", directory: "C:/projects/jar-vis/sessions", agent: "jarvis", updated: now - 60_000 },
-            { id: "ses_mock456", title: "Refactor the parser", directory: "C:/projects/jar-vis", agent: "build", updated: now - 7_200_000 },
+            { id: "ses_mock456", title: "Deploy watch", directory: "C:/projects/jar-vis/sessions", agent: "jarvis", updated: now - 7_200_000 },
           ];
         case "wizard_info":
           return { suggestedHome: "C:/Users/you/jar-vis", defaultHotkey: "ControlRight", platform: "windows", accessibility: true, devBuild: true };
@@ -131,7 +168,7 @@ export function install() {
           set({
             state: "working",
             detail: "bash: npm test",
-            history: [...snapshot.history, { transcript: String(args.text), summary: "", details: "", pending: true, error: null, time: Date.now() }],
+            history: [...snapshot.history, { transcript: String(args.text), summary: "", details: "", pending: true, scheduled: false, error: null, time: Date.now() }],
           });
           return;
         default:

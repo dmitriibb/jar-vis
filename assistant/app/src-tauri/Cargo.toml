@@ -48,6 +48,7 @@ sha2 = "0.10"
 tar = "0.4"
 bzip2 = "0.4"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 cpal = "0.15"
 rubato = "0.15"

@@ -34,6 +34,7 @@ export const api = {
   abort: () => invoke<void>("abort"),
   replyPermission: (id: string, reply: PermissionReply) => invoke<void>("reply_permission", { id, reply }),
   replayLast: () => invoke<void>("replay_last"),
+  cancelTask: (id: string) => invoke<void>("cancel_task", { id }),
 
   listProjects: () => invoke<ProjectRef[]>("list_projects"),
   listSessions: (projectId: string | null) => invoke<SessionSummary[]>("list_sessions", { projectId }),
@@ -59,6 +60,7 @@ export const api = {
   togglePanel: () => invoke<void>("toggle_panel"),
   hidePanel: () => invoke<void>("hide_panel"),
   panelFocus: (focus: boolean) => invoke<void>("panel_focus", { focus }),
+  copyText: (text: string) => invoke<void>("copy_text", { text }),
   petMenu: () => invoke<void>("pet_menu"),
   openSettings: (tab?: string) => invoke<void>("open_settings", { tab }),
   openPath: (what: "logs" | "config" | "home") => invoke<void>("open_path", { what }),

@@ -1,7 +1,7 @@
 //! The state machine. One task owns all turn state and is fed by a channel of
 //! [`Event`]s (hotkey, UI commands, transcripts) plus the backend event stream.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,10 +16,12 @@ use crate::audio::resample;
 use crate::backend::opencode::client::is_not_found;
 use crate::backend::{
     AgentBackend, BackendEvent, ModelRef, PermissionReply, PermissionRequest, SessionOpts, SessionRef, SessionSummary,
+    TranscriptItem,
 };
 use crate::commands::{self, Command};
 use crate::config::Config;
 use crate::hotkey::HotkeyEvent;
+use crate::schedule::{self, Schedule, Task};
 use crate::state::LastAnswer;
 use crate::tts::{sanitize, SpeechEnd};
 use crate::{personas, reply, stt, windows};
@@ -42,6 +44,7 @@ pub enum Event {
     Attach(SessionRef),
     Detach,
     ReplayLast,
+    CancelTask(String),
     /// The config was saved. Carries the previous one to find what changed.
     ConfigChanged(Box<Config>),
     ResyncPersonas,
@@ -61,6 +64,21 @@ enum Overlay {
     Error(String),
 }
 
+/// A prompt on its way to the current session.
+struct Outgoing {
+    /// What the panel shows.
+    text: String,
+    /// What is sent, when it differs from `text`.
+    wire: Option<String>,
+    scheduled: bool,
+}
+
+impl Outgoing {
+    fn user(text: String) -> Self {
+        Self { text, wire: None, scheduled: false }
+    }
+}
+
 pub struct Orchestrator {
     app: Arc<App>,
     rx: mpsc::UnboundedReceiver<Event>,
@@ -72,11 +90,16 @@ pub struct Orchestrator {
     turn_active: bool,
     /// The running turn was started by Jar-vis, so its answer is shown and spoken.
     own_turn: bool,
+    /// The running turn answers a scheduled prompt, so it may not schedule more.
+    own_scheduled: bool,
     tool_line: Option<String>,
     permission: Option<PermissionRequest>,
     /// Generation of the utterance being spoken.
     speaking: Option<u64>,
-    queue: VecDeque<String>,
+    queue: VecDeque<Outgoing>,
+    schedule: Schedule,
+    /// Scheduled prompts running in sessions other than the current one: id -> title.
+    background: HashMap<String, String>,
     history: Vec<Exchange>,
     session: Option<SessionSummary>,
     /// The persisted session was confirmed to still exist during this run.
@@ -96,10 +119,13 @@ impl Orchestrator {
             recorder: None,
             turn_active: false,
             own_turn: false,
+            own_scheduled: false,
             tool_line: None,
             permission: None,
             speaking: None,
             queue: VecDeque::new(),
+            schedule: Schedule::load(),
+            background: HashMap::new(),
             history: Vec::new(),
             session: None,
             session_verified: false,
@@ -110,6 +136,7 @@ impl Orchestrator {
     pub async fn run(mut self) {
         let mut backend_rx = self.app.backend.subscribe();
         let mut tick = tokio::time::interval(Duration::from_secs(30));
+        let mut schedule_tick = tokio::time::interval(Duration::from_secs(10));
         self.preload_stt();
         self.publish();
         loop {
@@ -128,6 +155,7 @@ impl Orchestrator {
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
                 _ = tick.tick() => self.on_tick(),
+                _ = schedule_tick.tick() => self.run_due().await,
             }
         }
     }
@@ -218,6 +246,7 @@ impl Orchestrator {
             history: self.history.clone(),
             permission: self.permission.clone(),
             queued: self.queue.len(),
+            tasks: self.schedule.tasks(),
             personality: cfg.persona.active.clone(),
             model,
             pet: cfg.persona.pet.clone(),
@@ -289,6 +318,11 @@ impl Orchestrator {
             Event::Attach(session) => self.attach(session).await,
             Event::Detach => self.detach().await,
             Event::ReplayLast => self.replay_last(),
+            Event::CancelTask(id) => {
+                if self.schedule.cancel(&id) {
+                    tracing::info!("cancelled scheduled task {id}");
+                }
+            }
             Event::ConfigChanged(old) => self.on_config_changed(*old).await,
             Event::ResyncPersonas => self.sync_personas(true).await,
             Event::ModelsChanged => self.preload_stt(),
@@ -429,23 +463,30 @@ impl Orchestrator {
             return self.fail("opencode is not running");
         }
         if self.turn_active {
-            self.queue.push_back(text);
+            self.queue.push_back(Outgoing::user(text));
             self.app.toast(ToastLevel::Info, "Queued — I will send it when the current task is done.");
             return;
         }
-        self.send_now(text).await;
+        self.send_now(Outgoing::user(text)).await;
     }
 
-    async fn send_now(&mut self, text: String) {
+    async fn send_now(&mut self, item: Outgoing) {
         self.overlay = Overlay::Sending;
         self.publish();
-        match self.deliver(&text).await {
+        match self.deliver(&item).await {
             Ok(()) => {
                 self.overlay = Overlay::None;
                 self.turn_active = true;
                 self.own_turn = true;
+                self.own_scheduled = item.scheduled;
                 self.tool_line = None;
-                self.history.push(Exchange { transcript: text, pending: true, time: now_ms(), ..Default::default() });
+                self.history.push(Exchange {
+                    transcript: item.text,
+                    pending: true,
+                    scheduled: item.scheduled,
+                    time: now_ms(),
+                    ..Default::default()
+                });
                 if self.history.len() > MAX_HISTORY {
                     let extra = self.history.len() - MAX_HISTORY;
                     self.history.drain(..extra);
@@ -458,23 +499,108 @@ impl Orchestrator {
         }
     }
 
-    async fn deliver(&mut self, text: &str) -> Result<()> {
+    async fn deliver(&mut self, item: &Outgoing) -> Result<()> {
         let session = self.ensure_session().await?;
         let attached = self.app.state.lock().attached;
-        // Workspace agents carry the voice rules in their prompt. An attached
+        let body = item.wire.as_deref().unwrap_or(&item.text);
+        // Workspace agents carry the Jar-vis rules in their prompt. An attached
         // session keeps its own agent, so the rules travel with the message.
-        let wire = if attached {
-            format!("[voice mode: {}]\n\n{text}", personas::voice_rules_inline(&self.cfg()))
-        } else {
-            text.to_string()
-        };
+        let wire = if attached { format!("{}{body}", personas::attach_prefix(&self.cfg())) } else { body.to_string() };
         match self.backend().send_prompt(&session, &wire).await {
-            Err(e) if is_not_found(&e) && !attached => {
-                // The session was deleted elsewhere. Start over in a new one.
+            // The session was deleted elsewhere. A prompt from the user starts
+            // over in a new one; a scheduled prompt belongs to the old one.
+            Err(e) if is_not_found(&e) && !attached && !item.scheduled => {
                 let session = self.create_workspace_session().await?;
-                self.backend().send_prompt(&session, text).await
+                self.backend().send_prompt(&session, body).await
             }
             other => other,
+        }
+    }
+
+    // ---- scheduled prompts --------------------------------------------------
+
+    /// Send the prompts that have come due to their sessions.
+    async fn run_due(&mut self) {
+        if !self.connected {
+            // They stay due and fire once opencode is back.
+            return;
+        }
+        let due = self.schedule.take_due(now_ms());
+        if due.is_empty() {
+            return;
+        }
+        for task in due {
+            self.fire(task).await;
+        }
+        self.publish();
+    }
+
+    async fn fire(&mut self, task: Task) {
+        tracing::info!("scheduled task {} is due in session {}", task.id, task.session.id);
+        let wire = schedule::wire_prompt(&task, now_ms());
+        if self.is_current(&task.session.id) {
+            let item = Outgoing { text: task.prompt.clone(), wire: Some(wire), scheduled: true };
+            if self.turn_active {
+                self.queue.push_back(item);
+            } else {
+                self.send_now(item).await;
+            }
+            return;
+        }
+        // Another session: run it in the background and report when it is done.
+        let title = task.session_title.clone().unwrap_or_else(|| "another session".to_string());
+        let cfg = self.cfg();
+        let in_workspace = same_dir(&task.session.directory, &cfg.workspace_dir());
+        let wire = if in_workspace { wire } else { format!("{}{wire}", personas::attach_prefix(&cfg)) };
+        match self.backend().send_prompt(&task.session, &wire).await {
+            Ok(()) => {
+                self.app.toast(ToastLevel::Info, format!("Running a scheduled task in \"{title}\"."));
+                self.background.insert(task.session.id.clone(), title);
+            }
+            Err(e) if is_not_found(&e) => {
+                let dropped = self.schedule.remove_session(&task.session.id);
+                self.app.toast(
+                    ToastLevel::Warn,
+                    format!("The session \"{title}\" no longer exists. Dropped its scheduled task{}.", if dropped > 0 { "s" } else { "" }),
+                );
+            }
+            Err(e) => self.app.toast(ToastLevel::Error, format!("A scheduled task in \"{title}\" could not be sent: {e:#}")),
+        }
+    }
+
+    /// Store the tasks an answer asked for. Returns a spoken note about failures.
+    fn schedule_requests(&mut self, requests: Vec<Result<schedule::Directive, String>>) {
+        let Some(session) = self.current() else { return };
+        let title = self.session.as_ref().filter(|s| s.id == session.id).and_then(|s| s.title.clone());
+        for request in requests {
+            let added = request
+                .map_err(|e| anyhow!("the request was not valid JSON ({e})"))
+                .and_then(|d| schedule::task_from(&d, &session, title.clone(), now_ms()))
+                .and_then(|task| {
+                    let note = format!("Scheduled {}: {}", describe_when(&task), task.prompt);
+                    self.schedule.add(task).map(|_| note)
+                });
+            match added {
+                Ok(note) => self.app.toast(ToastLevel::Info, note),
+                Err(e) => self.app.toast(ToastLevel::Error, format!("Could not schedule that: {e:#}")),
+            }
+        }
+    }
+
+    /// Rebuild the panel history of the current session from opencode.
+    async fn reload_history(&mut self) {
+        let Some(session) = self.current() else { return };
+        match self.backend().transcript(&session).await {
+            Ok(items) => {
+                self.history = exchanges_from(&items, self.cfg().tts.max_spoken_chars);
+                // A turn that is still running has no answer yet.
+                if self.turn_active {
+                    if let Some(last) = self.history.last_mut().filter(|e| e.summary.is_empty()) {
+                        last.pending = true;
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("could not load the session history: {e:#}"),
         }
     }
 
@@ -525,6 +651,7 @@ impl Orchestrator {
     fn reset_turn_state(&mut self) {
         self.turn_active = false;
         self.own_turn = false;
+        self.own_scheduled = false;
         self.tool_line = None;
         self.permission = None;
         self.queue.clear();
@@ -551,7 +678,10 @@ impl Orchestrator {
         self.session_verified = false;
         self.reset_turn_state();
         self.history.clear();
+        // From here on its events are handled as the current session's.
+        self.background.remove(&session.id);
         self.resync().await;
+        self.reload_history().await;
         if attached {
             let override_agent = self.cfg().attach.override_agent;
             if !override_agent.trim().is_empty() {
@@ -571,7 +701,11 @@ impl Orchestrator {
         self.session_verified = false;
         self.reset_turn_state();
         self.history.clear();
+        if let Some(current) = self.current() {
+            self.background.remove(&current.id);
+        }
         self.resync().await;
+        self.reload_history().await;
     }
 
     /// Bring turn state in line with the backend, after connecting or switching session.
@@ -624,6 +758,29 @@ impl Orchestrator {
                 self.default_model = self.backend().default_model(&workspace).await.ok().flatten().map(|m| m.key());
                 self.sync_personas(false).await;
                 self.resync().await;
+                if self.history.is_empty() {
+                    self.reload_history().await;
+                }
+            }
+            // Scheduled prompts running in a session that is not on screen.
+            BackendEvent::SessionIdle { session, interrupted } if !self.is_current(&session) && self.background.contains_key(&session) => {
+                let title = self.background.remove(&session).unwrap_or_default();
+                if !interrupted {
+                    self.report_background(&session, &title).await;
+                }
+            }
+            BackendEvent::SessionError { session, message } if !self.is_current(&session) && self.background.contains_key(&session) => {
+                let title = self.background.remove(&session).unwrap_or_default();
+                self.app.toast(ToastLevel::Error, format!("The scheduled task in \"{title}\" failed: {message}"));
+                self.speak(&format!("A scheduled task in {title} failed."));
+            }
+            BackendEvent::PermissionAsked(request) if !self.is_current(&request.session) && self.background.contains_key(&request.session) => {
+                let title = self.background.get(&request.session).cloned().unwrap_or_default();
+                self.app.toast(
+                    ToastLevel::Warn,
+                    format!("The scheduled task in \"{title}\" needs your permission ({}). Switch to that session to answer.", request.title),
+                );
+                self.speak(&format!("A scheduled task in {title} needs your permission."));
             }
             BackendEvent::Disconnected => {
                 self.connected = false;
@@ -662,6 +819,7 @@ impl Orchestrator {
                 self.permission = None;
                 if self.own_turn {
                     self.own_turn = false;
+                    self.own_scheduled = false;
                     if let Some(last) = self.history.last_mut().filter(|e| e.pending) {
                         last.pending = false;
                         last.error = Some(message.clone());
@@ -678,10 +836,27 @@ impl Orchestrator {
         self.publish();
     }
 
+    /// Speak and show the result of a scheduled prompt that ran in another session.
+    async fn report_background(&mut self, session_id: &str, title: &str) {
+        let Ok(Some(info)) = self.backend().get_session(session_id).await else { return };
+        match self.backend().last_assistant_text(&info.as_ref()).await {
+            Ok(text) => {
+                // Answers to scheduled prompts may not schedule more.
+                let (text, _) = schedule::extract(&text);
+                let answer = reply::split(&text, self.cfg().tts.max_spoken_chars);
+                self.app.toast(ToastLevel::Info, format!("Scheduled task in \"{title}\": {}", answer.summary));
+                self.speak(&format!("Scheduled task in {title}. {}", answer.summary));
+            }
+            Err(e) => self.app.toast(ToastLevel::Error, format!("The scheduled task in \"{title}\" gave no answer: {e:#}")),
+        }
+    }
+
     async fn finish_turn(&mut self, interrupted: bool) {
         let own = self.own_turn;
+        let scheduled = self.own_scheduled;
         self.turn_active = false;
         self.own_turn = false;
+        self.own_scheduled = false;
         self.tool_line = None;
         self.permission = None;
         let Some(session) = self.current() else { return };
@@ -694,7 +869,7 @@ impl Orchestrator {
                 }
             } else {
                 match self.backend().last_assistant_text(&session).await {
-                    Ok(text) => self.show_answer(&text),
+                    Ok(text) => self.show_answer(&text, scheduled),
                     Err(e) => {
                         if let Some(last) = self.history.last_mut().filter(|e| e.pending) {
                             last.pending = false;
@@ -706,15 +881,28 @@ impl Orchestrator {
             }
             // opencode names the session after the first turn.
             if let Ok(Some(info)) = self.backend().get_session(&session.id).await {
+                if let Some(title) = &info.title {
+                    self.schedule.set_title(&info.id, title);
+                }
                 self.session = Some(info);
             }
+        } else {
+            // A turn driven from another client: show it, but do not speak it.
+            self.reload_history().await;
         }
         self.flush_queue().await;
     }
 
-    fn show_answer(&mut self, text: &str) {
+    /// `scheduled` answers may not schedule further prompts, which would let a
+    /// task multiply itself.
+    fn show_answer(&mut self, text: &str, scheduled: bool) {
         let cfg = self.cfg();
-        let answer = reply::split(text, cfg.tts.max_spoken_chars);
+        let (text, requests) = schedule::extract(text);
+        if !scheduled {
+            self.schedule_requests(requests);
+        }
+        let text = if text.is_empty() { "Scheduled.".to_string() } else { text };
+        let answer = reply::split(&text, cfg.tts.max_spoken_chars);
         match self.history.last_mut().filter(|e| e.pending) {
             Some(last) => {
                 last.pending = false;
@@ -934,6 +1122,44 @@ impl Orchestrator {
     }
 }
 
+/// "in 60 minutes", "every 15 minutes", for the confirmation toast.
+fn describe_when(task: &Task) -> String {
+    let minutes = ((task.next_run - task.created) as f64 / 60_000.0).round().max(1.0) as i64;
+    let delay = if minutes == 1 { "1 minute".to_string() } else { format!("{minutes} minutes") };
+    match task.every_minutes {
+        Some(every) => format!("every {} min, first in {delay}", every.round() as i64),
+        None => format!("in {delay}"),
+    }
+}
+
+/// Pair user messages with the answer that followed them. A turn can produce
+/// several agent messages; the last one before the next user message wins.
+pub fn exchanges_from(items: &[TranscriptItem], max_spoken_chars: usize) -> Vec<Exchange> {
+    let mut out: Vec<Exchange> = Vec::new();
+    for item in items {
+        if item.user {
+            let (text, scheduled) = schedule::display_text(&item.text);
+            out.push(Exchange { transcript: text, scheduled, time: item.time, ..Default::default() });
+        } else {
+            let (text, _) = schedule::extract(&item.text);
+            if text.is_empty() {
+                continue;
+            }
+            let answer = reply::split(&text, max_spoken_chars);
+            if out.is_empty() {
+                out.push(Exchange { time: item.time, ..Default::default() });
+            }
+            let last = out.last_mut().expect("just ensured");
+            last.summary = answer.summary;
+            last.details = answer.details;
+        }
+    }
+    if out.len() > MAX_HISTORY {
+        out.drain(..out.len() - MAX_HISTORY);
+    }
+    out
+}
+
 /// Compare two directories ignoring separators, case (on Windows) and trailing slashes.
 pub fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
     let norm = |p: &std::path::Path| {
@@ -950,8 +1176,30 @@ pub fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::same_dir;
+    use super::{exchanges_from, same_dir};
+    use crate::backend::TranscriptItem;
     use std::path::Path;
+
+    #[test]
+    fn history_is_rebuilt_from_a_transcript() {
+        let item = |user: bool, text: &str, time: i64| TranscriptItem { user, text: text.to_string(), time };
+        let items = vec![
+            item(true, "what is two plus two", 1),
+            item(false, "Let me think.", 2),
+            item(false, "Four.\n---\nBecause 2 + 2 = 4.", 3),
+            item(true, "[scheduled task: the user is not typing this now.]\n\nCheck the service", 4),
+            item(false, "It is running.\n\n```jarvis-schedule\n{\"prompt\":\"x\",\"in_minutes\":5}\n```", 5),
+            item(true, "still there?", 6),
+        ];
+        let history = exchanges_from(&items, 400);
+        assert_eq!(history.len(), 3);
+        assert_eq!((history[0].transcript.as_str(), history[0].summary.as_str()), ("what is two plus two", "Four."));
+        assert_eq!(history[0].details, "Because 2 + 2 = 4.");
+        assert!(!history[0].scheduled);
+        assert_eq!((history[1].transcript.as_str(), history[1].summary.as_str()), ("Check the service", "It is running."));
+        assert!(history[1].scheduled);
+        assert_eq!((history[2].transcript.as_str(), history[2].summary.as_str()), ("still there?", ""));
+    }
 
     #[test]
     fn same_dir_ignores_separators() {

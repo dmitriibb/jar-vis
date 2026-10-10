@@ -2382,6 +2382,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bzip2",
+ "chrono",
  "cpal",
  "directories",
  "eventsource-stream",

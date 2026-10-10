@@ -13,6 +13,7 @@ pub mod orchestrator;
 pub mod personas;
 pub mod pets;
 pub mod reply;
+pub mod schedule;
 pub mod state;
 pub mod stt;
 pub mod tts;
@@ -147,6 +148,7 @@ pub fn run() {
             ipc::abort,
             ipc::reply_permission,
             ipc::replay_last,
+            ipc::cancel_task,
             ipc::list_projects,
             ipc::list_sessions,
             ipc::attach,
@@ -167,6 +169,7 @@ pub fn run() {
             ipc::toggle_panel,
             ipc::hide_panel,
             ipc::panel_focus,
+            ipc::copy_text,
             ipc::pet_menu,
             ipc::open_settings,
             ipc::open_path,

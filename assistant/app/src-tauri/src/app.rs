@@ -89,6 +89,8 @@ pub struct Snapshot {
     pub permission: Option<PermissionRequest>,
     /// Prompts recorded while a turn was running, waiting to be sent.
     pub queued: usize,
+    /// Scheduled prompts of every session, soonest first.
+    pub tasks: Vec<crate::schedule::Task>,
     pub personality: String,
     /// The model the next turn runs on, as `provider/id`, when known.
     pub model: Option<String>,
@@ -121,6 +123,8 @@ pub struct Exchange {
     pub details: String,
     /// True until the answer arrives.
     pub pending: bool,
+    /// The prompt came from the scheduler, not from the user just now.
+    pub scheduled: bool,
     pub error: Option<String>,
     /// Milliseconds since the Unix epoch.
     pub time: i64,

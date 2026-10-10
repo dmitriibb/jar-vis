@@ -144,6 +144,11 @@ pub fn reply_permission(app: Shared, id: String, reply: PermissionReply) {
 }
 
 #[tauri::command]
+pub fn cancel_task(app: Shared, id: String) {
+    app.send(Event::CancelTask(id));
+}
+
+#[tauri::command]
 pub fn replay_last(app: Shared) {
     app.send(Event::ReplayLast);
 }
@@ -373,6 +378,12 @@ pub fn panel_focus(app: Shared, focus: bool) {
             let _ = panel.set_focus();
         }
     }
+}
+
+/// Put text on the clipboard. The panel cannot do this itself while it is unfocused.
+#[tauri::command]
+pub fn copy_text(app: Shared, text: String) -> CmdResult<()> {
+    app.handle.clipboard().write_text(text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -83,6 +83,16 @@ pub struct BackendInfo {
     pub url: String,
 }
 
+/// One message of a session, for rebuilding the panel's history.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranscriptItem {
+    /// True for the user's side, false for the agent's.
+    pub user: bool,
+    pub text: String,
+    /// Milliseconds since the Unix epoch.
+    pub time: i64,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SessionOpts {
     /// Agent the new session starts with. None keeps the backend's default.
@@ -150,6 +160,8 @@ pub trait AgentBackend: Send + Sync {
     async fn abort(&self, s: &SessionRef) -> Result<()>;
     async fn is_busy(&self, s: &SessionRef) -> Result<bool>;
     async fn last_assistant_text(&self, s: &SessionRef) -> Result<String>;
+    /// The most recent user and agent messages with text, oldest first.
+    async fn transcript(&self, s: &SessionRef) -> Result<Vec<TranscriptItem>>;
     async fn pending_permissions(&self, s: &SessionRef) -> Result<Vec<PermissionRequest>>;
     async fn reply_permission(&self, s: &SessionRef, req_id: &str, reply: PermissionReply) -> Result<()>;
     /// Names of the agents the backend has registered for a directory.

@@ -4,7 +4,7 @@
   import { marked } from "marked";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, on } from "../lib/ipc";
-  import type { AgentModel, Exchange, OpenTarget, Snapshot } from "../lib/types";
+  import type { AgentModel, Exchange, OpenTarget, ScheduledTask, SessionSummary, Snapshot } from "../lib/types";
 
   let snap = $state<Snapshot | null>(null);
   let stream = $state("");
@@ -14,10 +14,20 @@
   let models = $state<AgentModel[]>([]);
   let modelsOpen = $state(false);
   let modelsError = $state("");
+  let sessions = $state<SessionSummary[]>([]);
+  let sessionsOpen = $state(false);
+  let sessionsError = $state("");
+  let tasksOpen = $state(false);
+  // Ticks so "in 12 min" stays current while the task list is open.
+  let now = $state(Date.now());
   let expanded = $state<Record<number, boolean>>({});
   let scroller: HTMLElement | undefined = $state();
   let input: HTMLInputElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  // Index of the answer whose Copy button was just used.
+  let copied = $state(-1);
+  // The panel holds focus because the user selected text in it.
+  let selecting = false;
   let autoHideSeconds = 0;
 
   const busy = $derived(snap?.state === "working" || snap?.state === "sending" || snap?.state === "permission");
@@ -40,8 +50,60 @@
     }
   }
 
+  /** Close every dropdown except the one named. */
+  function closeMenus(except = "") {
+    if (except !== "menu") menuOpen = false;
+    if (except !== "models") modelsOpen = false;
+    if (except !== "sessions") sessionsOpen = false;
+    if (except !== "tasks") tasksOpen = false;
+  }
+
+  async function toggleSessions() {
+    closeMenus("sessions");
+    sessionsOpen = !sessionsOpen;
+    if (!sessionsOpen) return;
+    try {
+      // The Jar-vis workspace sessions, newest first.
+      sessions = await api.listSessions(null);
+      sessionsError = "";
+    } catch (e) {
+      sessionsError = String(e);
+    }
+  }
+
+  function switchSession(id: string, directory: string) {
+    closeMenus();
+    if (id !== snap?.session?.id) api.attach(id, directory);
+  }
+
+  function toggleTasks() {
+    closeMenus("tasks");
+    tasksOpen = !tasksOpen;
+    now = Date.now();
+  }
+
+  function ago(ms: number): string {
+    const minutes = Math.round((Date.now() - ms) / 60_000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return minutes + " min ago";
+    if (minutes < 60 * 24) return Math.round(minutes / 60) + " h ago";
+    return new Date(ms).toLocaleDateString();
+  }
+
+  /** "15:42 · in 12 min · every 15 min" */
+  function taskWhen(t: ScheduledTask): string {
+    const at = new Date(t.nextRun);
+    const sameDay = at.toDateString() === new Date(now).toDateString();
+    const clock = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const minutes = Math.max(0, Math.round((t.nextRun - now) / 60_000));
+    const rel = minutes < 1 ? "due now" : minutes < 90 ? "in " + minutes + " min" : "in " + Math.round(minutes / 60) + " h";
+    const parts = [(sameDay ? "" : at.toLocaleDateString([], { month: "short", day: "numeric" }) + " ") + clock, rel];
+    if (t.everyMinutes) parts.push("every " + Math.round(t.everyMinutes) + " min");
+    return parts.join(" · ");
+  }
+
   function toggleModels() {
-    menuOpen = false;
+    closeMenus("models");
     modelsOpen = !modelsOpen;
     if (modelsOpen) loadModels();
   }
@@ -92,7 +154,11 @@
     ];
     api.getSnapshot().then(apply);
     api.getConfig().then((c) => (autoHideSeconds = c.ui.panel_auto_hide_seconds));
-    return () => unlisten.forEach((u) => u.then((f) => f()));
+    const clock = setInterval(() => (now = Date.now()), 30_000);
+    return () => {
+      clearInterval(clock);
+      unlisten.forEach((u) => u.then((f) => f()));
+    };
   });
 
   // The panel is non-focusable so it never steals focus. Typing needs focus,
@@ -107,6 +173,31 @@
     typing = false;
     api.panelFocus(false);
   }
+  // Ctrl+C needs keyboard focus, which the panel normally refuses. Selecting
+  // text is a clear sign the user wants to work in the panel, so focus is taken
+  // then, and given back when the window loses it.
+  function onSelectEnd() {
+    if (typing) return;
+    const selected = (window.getSelection()?.toString() ?? "").length > 0;
+    if (selected && !selecting) {
+      selecting = true;
+      api.panelFocus(true);
+    }
+  }
+  function onWindowBlur() {
+    if (selecting) {
+      selecting = false;
+      if (!typing) api.panelFocus(false);
+    }
+  }
+
+  async function copyAnswer(i: number, e: Exchange) {
+    const text = e.details ? e.summary + "\n\n" + e.details : e.summary || e.error || "";
+    await api.copyText(text).catch((err) => console.error(err));
+    copied = i;
+    setTimeout(() => (copied === i ? (copied = -1) : null), 1500);
+  }
+
   function submit(e: Event) {
     e.preventDefault();
     const text = draft.trim();
@@ -135,11 +226,28 @@
   }
 </script>
 
+<svelte:window onblur={onWindowBlur} />
+
 <main>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <header onmousedown={onHeaderDown}>
     <div class="title">
-      <span class="name" title={snap?.session?.id ?? ""}>{title}</span>
+      <button class="ghost name" title="Switch session" disabled={!snap?.backend} onclick={toggleSessions}>
+        <span class="name-text">{title}</span> ▾
+      </button>
+      {#if sessionsOpen}
+        <div class="dropdown sessions">
+          <button onclick={() => (closeMenus(), api.newSession())}>＋ New session</button>
+          {#if sessionsError}<p class="error">{sessionsError}</p>{/if}
+          {#if !sessions.length && !sessionsError}<p class="hint">No sessions yet.</p>{/if}
+          {#each sessions as s (s.id)}
+            <button class:current={s.id === snap?.session?.id} onclick={() => switchSession(s.id, s.directory)}>
+              <span class="row-title">{s.title ?? "Untitled session"}</span>
+              <span class="row-sub">{ago(s.updated)}{snap?.tasks.some((t) => t.session.id === s.id) ? " · ⏱" : ""}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <span class="mode" class:attached={snap?.session?.mode === "attached"}>
         {#if snap?.session?.mode === "attached"}attached: {snap.session.project}{:else}workspace{/if}
         {#if snap?.backend}· opencode {snap.backend.version}{:else}· offline{/if}
@@ -150,7 +258,7 @@
       mute
     </label>
     <div class="menu">
-      <button class="ghost" title="Open this session elsewhere" disabled={!snap?.session} onclick={() => ((modelsOpen = false), (menuOpen = !menuOpen))}>↗</button>
+      <button class="ghost" title="Open this session elsewhere" disabled={!snap?.session} onclick={() => (closeMenus("menu"), (menuOpen = !menuOpen))}>↗</button>
       {#if menuOpen}
         <div class="dropdown">
           <button onclick={() => openIn("web")}>opencode web</button>
@@ -182,10 +290,38 @@
         {/each}
       </div>
     {/if}
+    <div class="spacer"></div>
+    <button class="model" title="Scheduled tasks in all sessions" onclick={toggleTasks}>
+      ⏱ {snap?.tasks.length ?? 0}
+    </button>
+    {#if tasksOpen}
+      <div class="dropdown tasks">
+        {#if !snap?.tasks.length}
+          <p class="hint">Nothing is scheduled. Ask for something like “in an hour, check whether my service is running”.</p>
+        {/if}
+        {#each snap?.tasks ?? [] as t (t.id)}
+          <div class="task">
+            <div class="task-body">
+              <div class="task-prompt" title={t.prompt}>{t.prompt}</div>
+              <div class="row-sub">{taskWhen(t)}</div>
+              <button
+                class="task-session"
+                class:current={t.session.id === snap?.session?.id}
+                title="Switch to this session"
+                onclick={() => switchSession(t.session.id, t.session.directory)}
+              >
+                {t.session.id === snap?.session?.id ? "this session" : (t.sessionTitle ?? "another session")}
+              </button>
+            </div>
+            <button class="danger" onclick={() => api.cancelTask(t.id)}>Cancel</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <section class="history" bind:this={scroller} onclick={() => ((menuOpen = false), (modelsOpen = false))}>
+  <section class="history" bind:this={scroller} onclick={() => closeMenus()} onmouseup={onSelectEnd}>
     {#if !snap?.history.length}
       <p class="empty">
         {#if snap?.state === "offline"}
@@ -199,7 +335,11 @@
       {@const last = i === (snap?.history.length ?? 0) - 1}
       <article class:old={!last}>
         {#if e.transcript}
-          <p class="you"><span class="t">{time(e.time)}</span> {e.transcript}</p>
+          <p class="you">
+            <span class="t">{time(e.time)}</span>
+            {#if e.scheduled}<span class="sched" title="Sent by the scheduler">⏱ scheduled</span>{/if}
+            {e.transcript}
+          </p>
         {/if}
         {#if e.pending}
           <p class="progress">
@@ -215,13 +355,18 @@
           <p class="error">{e.error}</p>
         {:else}
           <p class="summary">{e.summary}</p>
-          {#if e.details}
-            <button class="ghost toggle" onclick={() => (expanded[i] = !isOpen(i, e, last))}>
-              Details {isOpen(i, e, last) ? "▾" : "▸"}
-            </button>
-            {#if isOpen(i, e, last)}
-              <div class="details">{@html md(e.details)}</div>
+          <div class="actions">
+            {#if e.details}
+              <button class="ghost toggle" onclick={() => (expanded[i] = !isOpen(i, e, last))}>
+                Details {isOpen(i, e, last) ? "▾" : "▸"}
+              </button>
             {/if}
+            <button class="ghost toggle copy" title="Copy this answer" onclick={() => copyAnswer(i, e)}>
+              {copied === i ? "Copied ✓" : "Copy"}
+            </button>
+          </div>
+          {#if e.details && isOpen(i, e, last)}
+            <div class="details">{@html md(e.details)}</div>
           {/if}
         {/if}
       </article>
@@ -279,16 +424,100 @@
     cursor: grab;
   }
   .title {
+    position: relative;
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
   }
   .name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0;
     font-weight: 600;
+  }
+  .name-text {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .dropdown.sessions {
+    left: 0;
+    right: auto;
+    width: 260px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .dropdown.sessions button,
+  .task {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .row-title {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-sub {
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .spacer {
+    flex: 1;
+  }
+  .dropdown.tasks {
+    right: 10px;
+    left: auto;
+    width: 330px;
+    max-height: 300px;
+    overflow-y: auto;
+    cursor: default;
+  }
+  .task {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .task:last-child {
+    border-bottom: none;
+  }
+  .task-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .task-prompt {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .dropdown .task-session {
+    padding: 0;
+    font-size: 10.5px;
+    color: var(--muted);
+    text-decoration: underline;
+  }
+  .dropdown .task .danger {
+    border-color: #7f3030;
+    flex: none;
+  }
+  .sched {
+    color: var(--accent);
+    font-size: 10.5px;
   }
   .mode {
     font-size: 10.5px;
@@ -432,6 +661,13 @@
     color: var(--danger);
     user-select: text;
     -webkit-user-select: text;
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+  }
+  .toggle.copy {
+    color: var(--muted);
   }
   .toggle {
     color: var(--accent);
