@@ -12,7 +12,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::app::{App, Snapshot, ToastLevel};
 use crate::audio::capture;
-use crate::backend::{AgentBackend, BackendInfo, PermissionReply, ProjectRef, SessionRef, SessionSummary};
+use crate::backend::{AgentBackend, BackendInfo, ModelInfo, PermissionReply, ProjectRef, SessionRef, SessionSummary};
 use crate::config::{self, Config};
 use crate::launch::{self, OpenchamberTarget};
 use crate::models::ModelStatus;
@@ -94,6 +94,25 @@ pub fn apply_personality(app: &Arc<App>, name: &str) {
 #[tauri::command]
 pub fn set_personality(app: Shared, name: String) {
     apply_personality(&app, &name);
+}
+
+/// The models opencode offers for the current session's directory.
+#[tauri::command]
+pub async fn list_agent_models(app: Shared<'_>) -> CmdResult<Vec<ModelInfo>> {
+    let dir = app
+        .state
+        .lock()
+        .current_session
+        .as_ref()
+        .map(|s| s.directory.clone())
+        .unwrap_or_else(|| app.config.read().workspace_dir());
+    app.backend.list_models(&dir).await.map_err(err)
+}
+
+/// `model` is `provider/id`.
+#[tauri::command]
+pub fn set_model(app: Shared, model: String) {
+    app.send(Event::SetModel(model));
 }
 
 #[tauri::command]

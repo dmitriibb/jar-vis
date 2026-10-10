@@ -24,8 +24,42 @@ pub struct SessionSummary {
     pub title: Option<String>,
     pub directory: PathBuf,
     pub agent: Option<String>,
+    /// The session's model, when one was chosen explicitly.
+    pub model: Option<ModelRef>,
     /// Milliseconds since the Unix epoch.
     pub updated: i64,
+}
+
+/// A model, written `provider/id` in the config and the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelRef {
+    pub id: String,
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+}
+
+impl ModelRef {
+    /// Parse `provider/id`. Model ids may themselves contain slashes.
+    pub fn parse(key: &str) -> Option<ModelRef> {
+        let (provider, id) = key.trim().split_once('/')?;
+        if provider.is_empty() || id.is_empty() {
+            return None;
+        }
+        Some(ModelRef { id: id.to_string(), provider_id: provider.to_string() })
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.provider_id, self.id)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    /// `provider/id`.
+    pub key: String,
+    pub name: String,
+    pub provider: String,
 }
 
 impl SessionSummary {
@@ -53,6 +87,8 @@ pub struct BackendInfo {
 pub struct SessionOpts {
     /// Agent the new session starts with. None keeps the backend's default.
     pub agent: Option<String>,
+    /// Model the new session starts with. None keeps the backend's default.
+    pub model: Option<ModelRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +141,11 @@ pub trait AgentBackend: Send + Sync {
     /// None when the session no longer exists.
     async fn get_session(&self, id: &str) -> Result<Option<SessionSummary>>;
     async fn set_agent(&self, s: &SessionRef, agent: &str) -> Result<()>;
+    /// Models that can drive an agent (text output, tool use), newest first.
+    async fn list_models(&self, dir: &Path) -> Result<Vec<ModelInfo>>;
+    /// The model used when a session has none chosen.
+    async fn default_model(&self, dir: &Path) -> Result<Option<ModelRef>>;
+    async fn set_model(&self, s: &SessionRef, model: &ModelRef) -> Result<()>;
     async fn send_prompt(&self, s: &SessionRef, text: &str) -> Result<()>;
     async fn abort(&self, s: &SessionRef) -> Result<()>;
     async fn is_busy(&self, s: &SessionRef) -> Result<bool>;

@@ -124,6 +124,15 @@
     {:else}
       <Blob state={visual} {level} />
     {/if}
+    {#if visual === "listening"}
+      <!-- Shown for as long as the key is held and the microphone is open. -->
+      <span class="mic" title="Listening">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" />
+        </svg>
+      </span>
+    {/if}
     {#if snap?.muted}
       <span class="badge mute" title="Muted">🔇</span>
     {/if}
@@ -163,6 +172,38 @@
     bottom: 4px;
     font-size: 15px;
     filter: drop-shadow(0 1px 2px #000);
+  }
+  .mic {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #dc2626;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    animation: mic-pulse 1s ease-in-out infinite;
+  }
+  .mic svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .mic rect {
+    fill: #fff;
+    stroke: none;
+  }
+  @keyframes mic-pulse {
+    50% {
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.5),
+        0 0 0 7px rgba(220, 38, 38, 0.3);
+    }
   }
   .line,
   .attached {

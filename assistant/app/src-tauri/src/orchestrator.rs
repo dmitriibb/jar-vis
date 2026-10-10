@@ -15,7 +15,7 @@ use crate::audio::level::{rms, SILENCE_RMS};
 use crate::audio::resample;
 use crate::backend::opencode::client::is_not_found;
 use crate::backend::{
-    AgentBackend, BackendEvent, PermissionReply, PermissionRequest, SessionOpts, SessionRef, SessionSummary,
+    AgentBackend, BackendEvent, ModelRef, PermissionReply, PermissionRequest, SessionOpts, SessionRef, SessionSummary,
 };
 use crate::commands::{self, Command};
 use crate::config::Config;
@@ -37,6 +37,8 @@ pub enum Event {
     Abort,
     ReplyPermission { id: String, reply: PermissionReply },
     SetMuted(bool),
+    /// Choose the model, as `provider/id`.
+    SetModel(String),
     Attach(SessionRef),
     Detach,
     ReplayLast,
@@ -79,6 +81,8 @@ pub struct Orchestrator {
     session: Option<SessionSummary>,
     /// The persisted session was confirmed to still exist during this run.
     session_verified: bool,
+    /// opencode's own default model, shown when nothing else was chosen.
+    default_model: Option<String>,
 }
 
 impl Orchestrator {
@@ -99,6 +103,7 @@ impl Orchestrator {
             history: Vec::new(),
             session: None,
             session_verified: false,
+            default_model: None,
         }
     }
 
@@ -184,8 +189,24 @@ impl Orchestrator {
         })
     }
 
+    /// The model the next turn runs on: the session's own, else the configured
+    /// one (workspace sessions only), else opencode's default.
+    fn model_key(&self) -> Option<String> {
+        let state = self.app.state.lock();
+        let current = state.current_session.as_ref();
+        let of_session = self
+            .session
+            .as_ref()
+            .filter(|s| current.is_some_and(|c| c.id == s.id))
+            .and_then(|s| s.model.as_ref())
+            .map(ModelRef::key);
+        let configured = Some(self.app.config.read().opencode.model.clone()).filter(|m| !m.is_empty() && !state.attached);
+        of_session.or(configured).or_else(|| self.default_model.clone())
+    }
+
     /// Recompute what the windows show and push it to them.
     fn publish(&self) {
+        let model = self.model_key();
         let cfg = self.app.config.read();
         let (state, detail) = self.phase();
         let snapshot = Snapshot {
@@ -198,6 +219,7 @@ impl Orchestrator {
             permission: self.permission.clone(),
             queued: self.queue.len(),
             personality: cfg.persona.active.clone(),
+            model,
             pet: cfg.persona.pet.clone(),
             hotkey: cfg.hotkey.key.clone(),
             hotkey_listening: self.app.hotkey.is_listening(),
@@ -228,8 +250,14 @@ impl Orchestrator {
 
     async fn handle(&mut self, event: Event) {
         match event {
-            Event::Hotkey(HotkeyEvent::Down) => self.ptt_down(),
-            Event::Hotkey(HotkeyEvent::Up) => self.ptt_up(),
+            Event::Hotkey(HotkeyEvent::Down) => {
+                tracing::info!("push-to-talk key down");
+                self.ptt_down()
+            }
+            Event::Hotkey(HotkeyEvent::Up) => {
+                tracing::info!("push-to-talk key up");
+                self.ptt_up()
+            }
             Event::Hotkey(HotkeyEvent::Chord) => self.ptt_chord(),
             Event::Transcript { text, typed } => self.on_transcript(text, typed).await,
             Event::SttFailed(message) => {
@@ -257,6 +285,7 @@ impl Orchestrator {
             Event::Abort => self.abort().await,
             Event::ReplyPermission { id, reply } => self.reply_permission(Some(id), reply).await,
             Event::SetMuted(muted) => self.set_muted(muted),
+            Event::SetModel(key) => self.set_model(&key).await,
             Event::Attach(session) => self.attach(session).await,
             Event::Detach => self.detach().await,
             Event::ReplayLast => self.replay_last(),
@@ -318,8 +347,15 @@ impl Orchestrator {
             Err(e) => return self.fail(format!("Microphone: {e:#}")),
         };
         let cfg = self.cfg();
-        if captured.seconds() < cfg.stt.min_seconds || rms(&captured.samples) < SILENCE_RMS {
-            tracing::debug!("discarded a {:.2}s clip", captured.seconds());
+        // A tap is ignored quietly. A real hold that recorded nothing is worth a hint.
+        if captured.seconds() < cfg.stt.min_seconds {
+            tracing::info!("ignored a {:.2}s tap", captured.seconds());
+            return;
+        }
+        let level = rms(&captured.samples);
+        if level < SILENCE_RMS {
+            tracing::info!("discarded {:.1}s of silence (level {level:.5})", captured.seconds());
+            self.app.toast(ToastLevel::Warn, "I heard only silence. Check the microphone in Settings → Voice input.");
             return;
         }
         let model = match self.app.models.stt_path(&cfg.stt.model) {
@@ -363,7 +399,8 @@ impl Orchestrator {
         }
         let text = if typed { Some(text.trim().to_string()).filter(|t| !t.is_empty()) } else { stt::filter::clean(&text) };
         let Some(text) = text else {
-            tracing::debug!("dropped an empty or hallucinated transcript");
+            tracing::info!("dropped an empty or hallucinated transcript");
+            self.app.toast(ToastLevel::Info, "I didn't catch that.");
             return;
         };
         tracing::info!("heard: {text}");
@@ -469,7 +506,8 @@ impl Orchestrator {
                 format!("opencode does not know the \"{}\" personality yet, using its default agent", cfg.persona.active),
             );
         }
-        let info = self.backend().create_session(&dir, &SessionOpts { agent }).await?;
+        let model = ModelRef::parse(&cfg.opencode.model);
+        let info = self.backend().create_session(&dir, &SessionOpts { agent, model }).await?;
         let session = info.as_ref();
         tracing::info!("created session {} in {}", session.id, session.directory.display());
         self.app.update_state(|s| {
@@ -582,6 +620,8 @@ impl Orchestrator {
         match event {
             BackendEvent::Connected => {
                 self.connected = true;
+                let workspace = self.cfg().workspace_dir();
+                self.default_model = self.backend().default_model(&workspace).await.ok().flatten().map(|m| m.key());
                 self.sync_personas(false).await;
                 self.resync().await;
             }
@@ -791,6 +831,34 @@ impl Orchestrator {
             self.speaking = None;
         }
         windows::rebuild_tray_menu(&self.app);
+    }
+
+    /// Switch the current session to another model. In the workspace the choice
+    /// is also remembered for new sessions; an attached session is only switched.
+    async fn set_model(&mut self, key: &str) {
+        let Some(model) = ModelRef::parse(key) else {
+            return self.app.toast(ToastLevel::Warn, format!("\"{key}\" is not a model"));
+        };
+        let attached = self.app.state.lock().attached;
+        if !attached {
+            let mut cfg = self.app.config.write();
+            cfg.opencode.model = model.key();
+            if let Err(e) = crate::config::save(&cfg) {
+                tracing::warn!("could not save config: {e:#}");
+            }
+            let _ = self.app.handle.emit("config-changed", &*cfg);
+        }
+        if let (Some(session), true) = (self.current(), self.connected) {
+            match self.backend().set_model(&session, &model).await {
+                Ok(()) => {
+                    if let Ok(Some(info)) = self.backend().get_session(&session.id).await {
+                        self.session = Some(info);
+                    }
+                }
+                Err(e) => self.app.toast(ToastLevel::Error, format!("Could not switch model: {e:#}")),
+            }
+        }
+        tracing::info!("model set to {}", model.key());
     }
 
     // ---- config and personas ------------------------------------------------

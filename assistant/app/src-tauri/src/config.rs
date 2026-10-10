@@ -127,6 +127,8 @@ pub struct OpencodeCfg {
     pub password: String,
     /// Empty means `<home>/sessions`.
     pub workspace_dir: String,
+    /// Model for Jar-vis sessions as `provider/id`. Empty uses opencode's default.
+    pub model: String,
 }
 
 impl Default for OpencodeCfg {
@@ -139,6 +141,7 @@ impl Default for OpencodeCfg {
             username: "opencode".into(),
             password: String::new(),
             workspace_dir: String::new(),
+            model: String::new(),
         }
     }
 }

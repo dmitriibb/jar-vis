@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use super::events::permission_request;
 use super::server::Conn;
-use crate::backend::{PermissionReply, PermissionRequest, ProjectRef, SessionSummary};
+use crate::backend::{ModelInfo, ModelRef, PermissionReply, PermissionRequest, ProjectRef, SessionSummary};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -47,6 +47,8 @@ struct SessionInfo {
     title: Option<String>,
     #[serde(default)]
     agent: Option<String>,
+    #[serde(default)]
+    model: Option<ModelRef>,
     location: Location,
     time: SessionTime,
 }
@@ -69,6 +71,7 @@ impl From<SessionInfo> for SessionSummary {
             title: s.title.filter(|t| !t.trim().is_empty()),
             directory: s.location.directory,
             agent: s.agent,
+            model: s.model,
             updated: s.time.updated as i64,
         }
     }
@@ -140,10 +143,18 @@ impl Client<'_> {
         Ok(res.data.into_iter().map(Into::into).collect())
     }
 
-    pub async fn create_session(&self, dir: &Path, agent: Option<&str>) -> Result<SessionSummary> {
+    pub async fn create_session(
+        &self,
+        dir: &Path,
+        agent: Option<&str>,
+        model: Option<&ModelRef>,
+    ) -> Result<SessionSummary> {
         let mut body = json!({ "location": { "directory": dir } });
         if let Some(agent) = agent {
             body["agent"] = json!(agent);
+        }
+        if let Some(model) = model {
+            body["model"] = json!(model);
         }
         let res: Data<SessionInfo> =
             Self::send(self.request(Method::POST, "/api/session").json(&body)).await?.json().await?;
@@ -170,6 +181,24 @@ impl Client<'_> {
         Self::send(self.request(Method::POST, &format!("/api/session/{id}/agent")).json(&json!({ "agent": agent })))
             .await?;
         Ok(())
+    }
+
+    pub async fn set_model(&self, id: &str, model: &ModelRef) -> Result<()> {
+        Self::send(self.request(Method::POST, &format!("/api/session/{id}/model")).json(&json!({ "model": model })))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_models(&self, dir: &Path) -> Result<Vec<ModelInfo>> {
+        let res: Data<Vec<Value>> =
+            Self::send(Self::at(self.request(Method::GET, "/api/model"), dir)).await?.json().await?;
+        Ok(res.data.iter().filter_map(agent_model).collect())
+    }
+
+    pub async fn default_model(&self, dir: &Path) -> Result<Option<ModelRef>> {
+        let res: Data<Option<ModelRef>> =
+            Self::send(Self::at(self.request(Method::GET, "/api/model/default"), dir)).await?.json().await?;
+        Ok(res.data)
     }
 
     /// Admit one prompt and schedule the agent loop. Returns as soon as it is accepted.
@@ -248,6 +277,24 @@ impl Client<'_> {
     }
 }
 
+/// Keep the models an agent can run on: enabled, not deprecated, text out, tool use.
+pub fn agent_model(model: &Value) -> Option<ModelInfo> {
+    let flag = |v: &Value, key: &str| v.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let caps = model.get("capabilities")?;
+    let text_out = caps.get("output")?.as_array()?.iter().any(|o| o.as_str() == Some("text"));
+    let deprecated = model.get("status").and_then(Value::as_str) == Some("deprecated");
+    if !flag(model, "enabled") || !flag(caps, "tools") || !text_out || deprecated {
+        return None;
+    }
+    let id = model.get("id")?.as_str()?;
+    let provider = model.get("providerID")?.as_str()?;
+    Some(ModelInfo {
+        key: format!("{provider}/{id}"),
+        name: model.get("name").and_then(Value::as_str).unwrap_or(id).to_string(),
+        provider: provider.to_string(),
+    })
+}
+
 /// `messages` is newest first. Walk back to the latest user message and return
 /// the newest assistant text found on the way.
 pub fn last_assistant_text(messages: &[Value]) -> Result<String> {
@@ -294,6 +341,33 @@ pub fn last_assistant_text(messages: &[Value]) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn filters_agent_models() {
+        let model = |id: &str, enabled: bool, tools: bool, out: &[&str], status: &str| {
+            json!({"id": id, "providerID": "openai", "name": id.to_uppercase(), "enabled": enabled, "status": status,
+                   "capabilities": {"tools": tools, "input": ["text"], "output": out}})
+        };
+        let kept = agent_model(&model("gpt-x", true, true, &["text"], "active")).unwrap();
+        assert_eq!((kept.key.as_str(), kept.name.as_str(), kept.provider.as_str()), ("openai/gpt-x", "GPT-X", "openai"));
+        assert!(agent_model(&model("embed", true, false, &["text"], "active")).is_none());
+        assert!(agent_model(&model("image", true, true, &["image"], "active")).is_none());
+        assert!(agent_model(&model("off", false, true, &["text"], "active")).is_none());
+        assert!(agent_model(&model("old", true, true, &["text"], "deprecated")).is_none());
+    }
+
+    #[test]
+    fn model_ref_keys() {
+        let m = ModelRef::parse("openrouter/anthropic/claude").unwrap();
+        assert_eq!((m.provider_id.as_str(), m.id.as_str()), ("openrouter", "anthropic/claude"));
+        assert_eq!(m.key(), "openrouter/anthropic/claude");
+        assert_eq!(ModelRef::parse("nope"), None);
+        assert_eq!(ModelRef::parse("/x"), None);
+        assert_eq!(serde_json::to_value(&m).unwrap(), json!({"id": "anthropic/claude", "providerID": "openrouter"}));
+        // Extra fields such as `variant` are ignored when reading.
+        let read: ModelRef = serde_json::from_value(json!({"id": "a", "providerID": "p", "variant": "high"})).unwrap();
+        assert_eq!(read.key(), "p/a");
+    }
 
     #[test]
     fn picks_newest_assistant_text() {

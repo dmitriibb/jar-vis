@@ -49,8 +49,13 @@ fn init_logging(level: &str) -> Option<WorkerGuard> {
     let filter = tracing_subscriber::EnvFilter::try_new(format!("warn,jar_vis_lib={level}"))
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let file_layer = tracing_subscriber::fmt::layer().with_writer(writer).with_ansi(false);
-    let console_layer = cfg!(debug_assertions).then(|| tracing_subscriber::fmt::layer().with_target(false));
-    tracing_subscriber::registry().with(filter).with(file_layer).with(console_layer).try_init().ok()?;
+    let registry = tracing_subscriber::registry().with(filter).with(file_layer);
+    // The console layer is added by cfg, not as an `Option` layer: a `None` layer
+    // reports "nothing is enabled" and silences the file log as well.
+    #[cfg(debug_assertions)]
+    registry.with(tracing_subscriber::fmt::layer().with_target(false)).try_init().ok()?;
+    #[cfg(not(debug_assertions))]
+    registry.try_init().ok()?;
     Some(guard)
 }
 
@@ -135,6 +140,8 @@ pub fn run() {
             ipc::reset_config,
             ipc::set_personality,
             ipc::set_muted,
+            ipc::list_agent_models,
+            ipc::set_model,
             ipc::send_text,
             ipc::new_session,
             ipc::abort,

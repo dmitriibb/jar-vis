@@ -182,15 +182,20 @@ pub fn open_settings(handle: &AppHandle, tab: &str) {
         return;
     }
     let url = format!("settings.html#{tab}");
-    let built = WebviewWindowBuilder::new(handle, SETTINGS, WebviewUrl::App(url.into()))
-        .title("Jar-vis Settings")
-        .inner_size(780.0, 600.0)
-        .min_inner_size(640.0, 460.0)
-        .center()
-        .build();
-    if let Err(e) = built {
-        tracing::error!("could not open settings: {e}");
-    }
+    let handle = handle.clone();
+    // On Windows, building a webview window on the main thread from a menu event
+    // or a synchronous command deadlocks. Build it from another thread.
+    std::thread::spawn(move || {
+        let built = WebviewWindowBuilder::new(&handle, SETTINGS, WebviewUrl::App(url.into()))
+            .title("Jar-vis Settings")
+            .inner_size(780.0, 600.0)
+            .min_inner_size(640.0, 460.0)
+            .center()
+            .build();
+        if let Err(e) = built {
+            tracing::error!("could not open settings: {e}");
+        }
+    });
 }
 
 // ---- tray -----------------------------------------------------------------

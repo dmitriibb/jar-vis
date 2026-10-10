@@ -54,7 +54,7 @@ async fn opencode_round_trip() {
     assert!(!projects.is_empty());
 
     let agent = agents.iter().find(|a| *a == "jarvis").cloned();
-    let session = backend.create_session(&dir, &SessionOpts { agent: agent.clone() }).await.expect("create session");
+    let session = backend.create_session(&dir, &SessionOpts { agent: agent.clone(), model: None }).await.expect("create session");
     let sref = session.as_ref();
     println!("session {} (agent {:?})", session.id, session.agent);
     assert_eq!(session.agent, agent);

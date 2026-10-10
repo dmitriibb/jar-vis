@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AgentModel,
   Config,
   ConnectionInfo,
   DownloadProgress,
@@ -25,6 +26,8 @@ export const api = {
   resetConfig: () => invoke<Config>("reset_config"),
   setPersonality: (name: string) => invoke<void>("set_personality", { name }),
   setMuted: (muted: boolean) => invoke<void>("set_muted", { muted }),
+  listAgentModels: () => invoke<AgentModel[]>("list_agent_models"),
+  setModel: (model: string) => invoke<void>("set_model", { model }),
 
   sendText: (text: string) => invoke<void>("send_text", { text }),
   newSession: () => invoke<void>("new_session"),

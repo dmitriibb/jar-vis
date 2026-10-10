@@ -19,7 +19,7 @@ use tokio::sync::{broadcast, Notify};
 use self::client::Client;
 use self::server::Conn;
 use super::{
-    AgentBackend, BackendEvent, BackendInfo, PermissionReply, PermissionRequest, ProjectRef, SessionOpts, SessionRef,
+    AgentBackend, BackendEvent, BackendInfo, ModelInfo, ModelRef, PermissionReply, PermissionRequest, ProjectRef, SessionOpts, SessionRef,
     SessionSummary,
 };
 use crate::config::OpencodeCfg;
@@ -211,7 +211,7 @@ impl AgentBackend for OpenCodeBackend {
     async fn create_session(&self, dir: &Path, opts: &SessionOpts) -> Result<SessionSummary> {
         let conn = self.conn()?;
         std::fs::create_dir_all(dir).ok();
-        client!(self, conn).create_session(dir, opts.agent.as_deref()).await
+        client!(self, conn).create_session(dir, opts.agent.as_deref(), opts.model.as_ref()).await
     }
 
     async fn get_session(&self, id: &str) -> Result<Option<SessionSummary>> {
@@ -222,6 +222,21 @@ impl AgentBackend for OpenCodeBackend {
     async fn set_agent(&self, s: &SessionRef, agent: &str) -> Result<()> {
         let conn = self.conn()?;
         client!(self, conn).set_agent(&s.id, agent).await
+    }
+
+    async fn list_models(&self, dir: &Path) -> Result<Vec<ModelInfo>> {
+        let conn = self.conn()?;
+        client!(self, conn).list_models(dir).await
+    }
+
+    async fn default_model(&self, dir: &Path) -> Result<Option<ModelRef>> {
+        let conn = self.conn()?;
+        client!(self, conn).default_model(dir).await
+    }
+
+    async fn set_model(&self, s: &SessionRef, model: &ModelRef) -> Result<()> {
+        let conn = self.conn()?;
+        client!(self, conn).set_model(&s.id, model).await
     }
 
     async fn send_prompt(&self, s: &SessionRef, text: &str) -> Result<()> {

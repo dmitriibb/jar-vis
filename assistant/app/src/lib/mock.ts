@@ -28,6 +28,7 @@ let snapshot: Snapshot = {
   permission: null,
   queued: 0,
   personality: "jarvis",
+  model: "openai/gpt-6.1-sol",
   pet: "default",
   hotkey: "ControlRight",
   hotkeyListening: true,
@@ -43,7 +44,7 @@ let config: Config = {
   audio: { input_device: "", tts_enabled: true },
   stt: { model: "base.en-q5_1", preload: true, unload_after_idle_minutes: 0, min_seconds: 0.35, max_seconds: 120, vocabulary: "opencode, Tauri, Rust" },
   tts: { voice: "piper-en_US-lessac-medium", speed: 1, max_spoken_chars: 400, unload_after_idle_minutes: 30 },
-  opencode: { url: "", autostart: true, stop_on_exit: false, binary: "", username: "opencode", password: "", workspace_dir: "" },
+  opencode: { url: "", autostart: true, stop_on_exit: false, binary: "", username: "opencode", password: "", workspace_dir: "", model: "" },
   persona: { active: "jarvis", pet: "default" },
   attach: { override_agent: "" },
   openchamber: { url: "", app_path: "" },
@@ -93,6 +94,15 @@ export function install() {
           return config;
         case "set_muted":
           return set({ muted: args.muted as boolean });
+        case "list_agent_models":
+          return [
+            { key: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", provider: "openai" },
+            { key: "openai/gpt-6-luna", name: "GPT-6 Luna", provider: "openai" },
+            { key: "openai/gpt-5.4-mini", name: "GPT-5.4 mini", provider: "openai" },
+            { key: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic" },
+          ];
+        case "set_model":
+          return set({ model: args.model as string });
         case "list_models":
           return models;
         case "list_input_devices":

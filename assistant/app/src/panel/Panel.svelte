@@ -4,13 +4,16 @@
   import { marked } from "marked";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, on } from "../lib/ipc";
-  import type { Exchange, OpenTarget, Snapshot } from "../lib/types";
+  import type { AgentModel, Exchange, OpenTarget, Snapshot } from "../lib/types";
 
   let snap = $state<Snapshot | null>(null);
   let stream = $state("");
   let draft = $state("");
   let typing = $state(false);
   let menuOpen = $state(false);
+  let models = $state<AgentModel[]>([]);
+  let modelsOpen = $state(false);
+  let modelsError = $state("");
   let expanded = $state<Record<number, boolean>>({});
   let scroller: HTMLElement | undefined = $state();
   let input: HTMLInputElement | undefined = $state();
@@ -19,6 +22,34 @@
 
   const busy = $derived(snap?.state === "working" || snap?.state === "sending" || snap?.state === "permission");
   const title = $derived(snap?.session?.title ?? (snap?.session ? "New session" : "No session yet"));
+
+  const modelName = $derived(models.find((m) => m.key === snap?.model)?.name ?? snap?.model?.split("/").slice(1).join("/") ?? "default model");
+  // The same list opencode shows, grouped by provider.
+  const modelGroups = $derived.by(() => {
+    const groups = new Map<string, AgentModel[]>();
+    for (const m of models) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
+    return [...groups.entries()];
+  });
+
+  async function loadModels() {
+    try {
+      models = await api.listAgentModels();
+      modelsError = "";
+    } catch (e) {
+      modelsError = String(e);
+    }
+  }
+
+  function toggleModels() {
+    menuOpen = false;
+    modelsOpen = !modelsOpen;
+    if (modelsOpen) loadModels();
+  }
+
+  function pickModel(key: string) {
+    modelsOpen = false;
+    if (key !== snap?.model) api.setModel(key);
+  }
 
   function md(text: string): string {
     return DOMPurify.sanitize(marked.parse(text, { async: false, breaks: true }) as string);
@@ -34,7 +65,10 @@
     const answered = !!after && !after.pending && (before?.pending || before?.time !== after.time);
     if (!next.history.some((e) => e.pending)) stream = "";
     if (next.session?.id !== snap?.session?.id) expanded = {};
+    // The list depends on the server and on the session's directory.
+    const reload = !!next.backend && (!snap?.backend || next.session?.directory !== snap?.session?.directory || !models.length);
     snap = next;
+    if (reload) loadModels();
     await tick();
     scroller?.scrollTo({ top: scroller.scrollHeight });
     if (answered) scheduleHide();
@@ -116,7 +150,7 @@
       mute
     </label>
     <div class="menu">
-      <button class="ghost" title="Open this session elsewhere" disabled={!snap?.session} onclick={() => (menuOpen = !menuOpen)}>↗</button>
+      <button class="ghost" title="Open this session elsewhere" disabled={!snap?.session} onclick={() => ((modelsOpen = false), (menuOpen = !menuOpen))}>↗</button>
       {#if menuOpen}
         <div class="dropdown">
           <button onclick={() => openIn("web")}>opencode web</button>
@@ -131,8 +165,27 @@
     <button class="ghost" title="Minimize" onclick={() => api.hidePanel()}>—</button>
   </header>
 
+  <div class="modelbar">
+    <span class="label">Model</span>
+    <button class="model" title={snap?.model ?? ""} disabled={!snap?.backend} onclick={toggleModels}>
+      <span class="model-name">{modelName}</span> ▾
+    </button>
+    {#if modelsOpen}
+      <div class="dropdown models">
+        {#if modelsError}<p class="error">{modelsError}</p>{/if}
+        {#if !models.length && !modelsError}<p class="hint">Loading…</p>{/if}
+        {#each modelGroups as [provider, list] (provider)}
+          <div class="group">{provider}</div>
+          {#each list as m (m.key)}
+            <button class:current={m.key === snap?.model} onclick={() => pickModel(m.key)}>{m.name}</button>
+          {/each}
+        {/each}
+      </div>
+    {/if}
+  </div>
+
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <section class="history" bind:this={scroller} onclick={() => (menuOpen = false)}>
+  <section class="history" bind:this={scroller} onclick={() => ((menuOpen = false), (modelsOpen = false))}>
     {#if !snap?.history.length}
       <p class="empty">
         {#if snap?.state === "offline"}
@@ -280,6 +333,54 @@
   }
   .dropdown button:hover {
     background: var(--bg);
+  }
+
+  .modelbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .label {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .model {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 260px;
+    padding: 2px 8px;
+    font-size: 12px;
+  }
+  .model-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dropdown.models {
+    left: 10px;
+    right: auto;
+    width: 250px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .group {
+    padding: 6px 8px 2px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .dropdown button.current {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .hint {
+    padding: 6px 8px;
+    color: var(--muted);
   }
 
   .history {

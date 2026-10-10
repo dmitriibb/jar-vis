@@ -55,6 +55,8 @@ export interface Snapshot {
   permission: PermissionRequest | null;
   queued: number;
   personality: string;
+  /** `provider/id` of the model the next turn runs on. */
+  model: string | null;
   pet: string;
   hotkey: string;
   hotkeyListening: boolean;
@@ -90,6 +92,7 @@ export interface Config {
     username: string;
     password: string;
     workspace_dir: string;
+    model: string;
   };
   persona: { active: string; pet: string };
   attach: { override_agent: string };
@@ -154,6 +157,13 @@ export interface PetSkin {
   name: string;
   size: number;
   states: Record<string, PetAnimation>;
+}
+
+export interface AgentModel {
+  /** `provider/id`. */
+  key: string;
+  name: string;
+  provider: string;
 }
 
 export interface ProjectRef {

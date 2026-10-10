@@ -90,6 +90,8 @@ pub struct Snapshot {
     /// Prompts recorded while a turn was running, waiting to be sent.
     pub queued: usize,
     pub personality: String,
+    /// The model the next turn runs on, as `provider/id`, when known.
+    pub model: Option<String>,
     pub pet: String,
     pub hotkey: String,
     /// False when the OS refused the global key hook.
