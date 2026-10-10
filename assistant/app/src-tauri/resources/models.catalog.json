@@ -1,0 +1,122 @@
+[
+  {
+    "id": "tiny.en-q5_1",
+    "kind": "stt",
+    "engine": "whisper",
+    "display": "Whisper tiny.en (fastest, weakest)",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
+    "sha256": "c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b",
+    "size_mb": 32,
+    "ram_mb_est": 100,
+    "file": "ggml-tiny.en-q5_1.bin",
+    "license": "MIT"
+  },
+  {
+    "id": "base.en-q5_1",
+    "kind": "stt",
+    "engine": "whisper",
+    "display": "Whisper base.en (default, good for short commands)",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
+    "sha256": "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
+    "size_mb": 60,
+    "ram_mb_est": 180,
+    "file": "ggml-base.en-q5_1.bin",
+    "license": "MIT"
+  },
+  {
+    "id": "small.en-q5_1",
+    "kind": "stt",
+    "engine": "whisper",
+    "display": "Whisper small.en (recommended upgrade)",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
+    "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+    "size_mb": 190,
+    "ram_mb_est": 400,
+    "file": "ggml-small.en-q5_1.bin",
+    "license": "MIT"
+  },
+  {
+    "id": "medium.en-q5_0",
+    "kind": "stt",
+    "engine": "whisper",
+    "display": "Whisper medium.en",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin",
+    "sha256": "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0",
+    "size_mb": 539,
+    "ram_mb_est": 900,
+    "file": "ggml-medium.en-q5_0.bin",
+    "license": "MIT"
+  },
+  {
+    "id": "large-v3-turbo-q5_0",
+    "kind": "stt",
+    "engine": "whisper",
+    "display": "Whisper large-v3-turbo (best quality)",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+    "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    "size_mb": 574,
+    "ram_mb_est": 1000,
+    "file": "ggml-large-v3-turbo-q5_0.bin",
+    "license": "MIT"
+  },
+  {
+    "id": "piper-en_US-amy-low",
+    "kind": "tts",
+    "engine": "piper",
+    "display": "Amy (US, fast)",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2",
+    "sha256": "c70f5284a09a7fd4ed203b39b2ff51cac1432b422b852eb647b481dade3cf639",
+    "size_mb": 67,
+    "ram_mb_est": 90,
+    "archive_root": "vits-piper-en_US-amy-low",
+    "license": "see the voice's MODEL_CARD"
+  },
+  {
+    "id": "piper-en_US-lessac-medium",
+    "kind": "tts",
+    "engine": "piper",
+    "display": "Lessac (US, default)",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
+    "sha256": "9e3febfacf0abf4270172d2958bcec246032b7e88efc2720840cc80c93de334e",
+    "size_mb": 67,
+    "ram_mb_est": 120,
+    "archive_root": "vits-piper-en_US-lessac-medium",
+    "license": "see the voice's MODEL_CARD"
+  },
+  {
+    "id": "piper-en_GB-alan-medium",
+    "kind": "tts",
+    "engine": "piper",
+    "display": "Alan (British)",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-medium.tar.bz2",
+    "sha256": "a48d4017da0f77668b27bed63fe6e04dd64c6397e1fadad4f460efb0ef7c9012",
+    "size_mb": 67,
+    "ram_mb_est": 120,
+    "archive_root": "vits-piper-en_GB-alan-medium",
+    "license": "see the voice's MODEL_CARD"
+  },
+  {
+    "id": "piper-en_US-ryan-high",
+    "kind": "tts",
+    "engine": "piper",
+    "display": "Ryan (US, better, slower)",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-high.tar.bz2",
+    "sha256": "6a71edf4d308b9cb2eaeadc8d1f3c6bf96120ecb7fe52c29a2b6e139c59760ed",
+    "size_mb": 116,
+    "ram_mb_est": 200,
+    "archive_root": "vits-piper-en_US-ryan-high",
+    "license": "see the voice's MODEL_CARD"
+  },
+  {
+    "id": "kokoro-en",
+    "kind": "tts",
+    "engine": "kokoro",
+    "display": "Kokoro English (best quality)",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2",
+    "sha256": "c9f0dd393615805b0bab050c340834d5e684e732aec91c0e860cd30e982c08bd",
+    "size_mb": 103,
+    "ram_mb_est": 350,
+    "archive_root": "kokoro-int8-en-v0_19",
+    "license": "Apache-2.0"
+  }
+]

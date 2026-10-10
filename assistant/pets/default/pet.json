@@ -1,0 +1,5 @@
+{
+  "name": "default",
+  "builtin": true,
+  "description": "The code-drawn blob that ships with Jar-vis. Copy this folder and replace the states with sprite sheets to make your own pet (see README)."
+}

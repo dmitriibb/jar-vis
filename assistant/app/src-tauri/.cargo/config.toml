@@ -1,0 +1,7 @@
+[env]
+# whisper-rs-sys forwards CMAKE_* variables to whisper.cpp's build, which always
+# compiles the Release configuration. On MSVC the cmake crate replaces the
+# compiler flags of the configuration named by CMAKE_BUILD_TYPE with bare ones
+# (no /O2). Naming a different configuration here leaves Release's own flags
+# alone; without this, Whisper is about ten times slower on Windows.
+CMAKE_BUILD_TYPE = "RelWithDebInfo"

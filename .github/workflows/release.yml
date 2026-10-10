@@ -1,0 +1,81 @@
+name: Release
+
+# Builds installers for Windows and macOS and attaches them to a draft GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            # Ships the sherpa-onnx DLLs next to the executable.
+            args: "--config src-tauri/bundle.windows.json"
+          - os: macos-14
+            args: "--target aarch64-apple-darwin"
+            rust_target: aarch64-apple-darwin
+          - os: macos-13
+            args: "--target x86_64-apple-darwin"
+            rust_target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: assistant/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assistant/app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: assistant/app/src-tauri
+
+      # whisper.cpp needs libclang for bindgen. The Windows runner ships LLVM here.
+      - name: Point bindgen at libclang (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+
+      - run: npm ci
+
+      # The Rust build embeds the frontend, so it has to exist first.
+      - run: npm run build
+
+      - name: Unit tests
+        working-directory: assistant/app/src-tauri
+        run: cargo test --lib
+
+      - name: Frontend type check
+        run: npm run check
+
+      # The DLLs listed in bundle.windows.json are produced by this build, and must
+      # exist before the bundler checks its resources.
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        working-directory: assistant/app/src-tauri
+        run: cargo build --release
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: assistant/app
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: "Jar-vis ${{ github.ref_name }}"
+          releaseDraft: true
+          args: ${{ matrix.args }}

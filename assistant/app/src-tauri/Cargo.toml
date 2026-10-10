@@ -1,0 +1,80 @@
+[package]
+name = "jar-vis"
+version = "0.1.0"
+description = "Desktop pet that is a voice front-end for opencode"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "jar_vis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["stt-whisper", "tts-sherpa"]
+# Local speech-to-text through whisper.cpp. Needs CMake and libclang to build.
+stt-whisper = ["dep:whisper-rs"]
+# Local text-to-speech through sherpa-onnx (Piper and Kokoro voices).
+tts-sherpa = ["dep:sherpa-rs"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+async-trait = "0.1"
+anyhow = "1"
+parking_lot = "0.12"
+regex = "1"
+directories = "5"
+which = "7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+reqwest = { version = "0.12", features = ["json", "stream"] }
+eventsource-stream = "0.2"
+sha2 = "0.10"
+tar = "0.4"
+bzip2 = "0.4"
+base64 = "0.22"
+
+cpal = "0.15"
+rubato = "0.15"
+rodio = { version = "0.20", default-features = false }
+rdev = { git = "https://github.com/rustdesk-org/rdev" }
+
+whisper-rs = { version = "0.14", optional = true }
+sherpa-rs = { version = "0.6", optional = true, features = ["tts"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.14", optional = true, features = ["metal"] }
+# Static sherpa-onnx on macOS, so the app bundle needs no extra dylibs.
+sherpa-rs = { version = "0.6", optional = true, features = ["tts", "static"] }
+
+[profile.dev.package."*"]
+# Whisper and the resampler are unusably slow without optimisation.
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[profile.dev.build-override]
+# sherpa-rs-sys links the debug C runtime when its build script is compiled with
+# debug assertions. Mixed with whisper.cpp's release runtime that corrupts the
+# heap on Windows ("Debug Assertion Failed" in debug_heap.cpp).
+debug-assertions = false

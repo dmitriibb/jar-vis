@@ -1,0 +1,17 @@
+# build output
+target/
+node_modules/
+dist/
+assistant/app/src-tauri/gen/
+
+# downloaded models
+models/*
+!models/.gitkeep
+
+# opencode working dir for Jar-vis sessions: generated config and user notes stay local
+sessions/*
+!sessions/.gitkeep
+!sessions/README.md
+
+.DS_Store
+*.log
