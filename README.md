@@ -256,6 +256,11 @@ avoids that.
 **The first installer launch is blocked** — builds are unsigned. On Windows choose More info → Run anyway. On macOS
 right-click the app and choose Open.
 
+## Utilities
+
+[`utils/`](utils/README.md) holds small stand-alone tools that are not part of the assistant. The first one,
+[opencode-cleanup](utils/opencode-cleanup/README.md), deletes old opencode sessions and gives the disk space back.
+
 ## Tests
 
 ```bash
