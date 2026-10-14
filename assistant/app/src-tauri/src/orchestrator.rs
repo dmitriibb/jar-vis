@@ -1,7 +1,7 @@
 //! The state machine. One task owns all turn state and is fed by a channel of
 //! [`Event`]s (hotkey, UI commands, transcripts) plus the backend event stream.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,6 +41,7 @@ pub enum Event {
     SetMuted(bool),
     /// Choose the model, as `provider/id`.
     SetModel(String),
+    SetAgent(String),
     Attach(SessionRef),
     Detach,
     ReplayLast,
@@ -104,6 +105,8 @@ pub struct Orchestrator {
     session: Option<SessionSummary>,
     /// The persisted session was confirmed to still exist during this run.
     session_verified: bool,
+    /// Sessions where the Jarvis skill has been requested during this run.
+    voice_sessions: HashSet<String>,
     /// opencode's own default model, shown when nothing else was chosen.
     default_model: Option<String>,
 }
@@ -129,6 +132,7 @@ impl Orchestrator {
             history: Vec::new(),
             session: None,
             session_verified: false,
+            voice_sessions: HashSet::new(),
             default_model: None,
         }
     }
@@ -205,6 +209,7 @@ impl Orchestrator {
         let current = state.current_session.as_ref()?;
         let title = self.session.as_ref().filter(|s| s.id == current.id).and_then(|s| s.title.clone());
         Some(SessionView {
+            agent: self.session.as_ref().filter(|s| s.id == current.id).and_then(|s| s.agent.clone()),
             id: current.id.clone(),
             title,
             directory: current.directory.to_string_lossy().into_owned(),
@@ -315,6 +320,11 @@ impl Orchestrator {
             Event::ReplyPermission { id, reply } => self.reply_permission(Some(id), reply).await,
             Event::SetMuted(muted) => self.set_muted(muted),
             Event::SetModel(key) => self.set_model(&key).await,
+            Event::SetAgent(agent) => {
+                if let Err(e) = self.set_agent(&agent).await {
+                    self.app.toast(ToastLevel::Error, format!("Could not switch agent: {e:#}"));
+                }
+            },
             Event::Attach(session) => self.attach(session).await,
             Event::Detach => self.detach().await,
             Event::ReplayLast => self.replay_last(),
@@ -503,18 +513,45 @@ impl Orchestrator {
         let session = self.ensure_session().await?;
         let attached = self.app.state.lock().attached;
         let body = item.wire.as_deref().unwrap_or(&item.text);
-        // Workspace agents carry the Jar-vis rules in their prompt. An attached
-        // session keeps its own agent, so the rules travel with the message.
-        let wire = if attached { format!("{}{body}", personas::attach_prefix(&self.cfg())) } else { body.to_string() };
+        let wire = self.voice_prompt(&session, body);
         match self.backend().send_prompt(&session, &wire).await {
             // The session was deleted elsewhere. A prompt from the user starts
             // over in a new one; a scheduled prompt belongs to the old one.
             Err(e) if is_not_found(&e) && !attached && !item.scheduled => {
                 let session = self.create_workspace_session().await?;
-                self.backend().send_prompt(&session, body).await
+                let wire = self.voice_prompt(&session, body);
+                let result = self.backend().send_prompt(&session, &wire).await;
+                if result.is_ok() { self.voice_sessions.insert(session.id.clone()); }
+                result
             }
-            other => other,
+            other => {
+                if other.is_ok() { self.voice_sessions.insert(session.id.clone()); }
+                other
+            },
         }
+    }
+
+    fn voice_prompt(&self, session: &SessionRef, body: &str) -> String {
+        let first = !self.voice_sessions.contains(&session.id);
+        format!("{}{body}", personas::session_prefix(&self.cfg(), first))
+    }
+
+    async fn set_agent(&mut self, agent: &str) -> Result<()> {
+        if self.turn_active { return Err(anyhow!("Wait for the current turn to finish before switching agents")); }
+        let dir = self.current().map(|s| s.directory).unwrap_or_else(|| self.cfg().workspace_dir());
+        if !self.backend().list_agents(&dir).await?.iter().any(|a| a == agent) {
+            return Err(anyhow!("This agent is not available as a primary agent in this project"));
+        }
+        let session = self.ensure_session().await?;
+        self.backend().set_agent(&session, agent).await?;
+        if let Some(info) = &mut self.session { info.agent = Some(agent.to_string()); }
+        self.voice_sessions.remove(&session.id);
+        if !self.app.state.lock().attached {
+            let mut cfg = self.cfg();
+            cfg.opencode.agent = agent.to_string();
+            crate::ipc::apply_config(&self.app, cfg)?;
+        }
+        Ok(())
     }
 
     // ---- scheduled prompts --------------------------------------------------
@@ -549,11 +586,10 @@ impl Orchestrator {
         }
         // Another session: run it in the background and report when it is done.
         let title = task.session_title.clone().unwrap_or_else(|| "another session".to_string());
-        let cfg = self.cfg();
-        let in_workspace = same_dir(&task.session.directory, &cfg.workspace_dir());
-        let wire = if in_workspace { wire } else { format!("{}{wire}", personas::attach_prefix(&cfg)) };
+        let wire = self.voice_prompt(&task.session, &wire);
         match self.backend().send_prompt(&task.session, &wire).await {
             Ok(()) => {
+                self.voice_sessions.insert(task.session.id.clone());
                 self.app.toast(ToastLevel::Info, format!("Running a scheduled task in \"{title}\"."));
                 self.background.insert(task.session.id.clone(), title);
             }
@@ -625,11 +661,12 @@ impl Orchestrator {
         let cfg = self.cfg();
         let dir = cfg.workspace_dir();
         let agents = self.backend().list_agents(&dir).await.unwrap_or_default();
-        let agent = Some(cfg.persona.active.clone()).filter(|a| agents.contains(a));
+        let preferred = if cfg.opencode.agent.is_empty() { &cfg.persona.active } else { &cfg.opencode.agent };
+        let agent = Some(preferred.clone()).filter(|a| agents.contains(a));
         if agent.is_none() {
             self.app.toast(
                 ToastLevel::Warn,
-                format!("opencode does not know the \"{}\" personality yet, using its default agent", cfg.persona.active),
+                format!("opencode does not know the \"{}\" personality yet, using its default agent", preferred),
             );
         }
         let model = ModelRef::parse(&cfg.opencode.model);
@@ -1113,8 +1150,12 @@ impl Orchestrator {
             // The running session switches agent too, unless it belongs to another project.
             let attached = self.app.state.lock().attached;
             if let (Some(session), false, true) = (self.current(), attached, self.connected) {
-                if let Err(e) = self.backend().set_agent(&session, &cfg.persona.active).await {
-                    self.app.toast(ToastLevel::Warn, format!("Could not switch personality: {e:#}"));
+                match self.backend().set_agent(&session, &cfg.persona.active).await {
+                    Err(e) => self.app.toast(ToastLevel::Warn, format!("Could not switch personality: {e:#}")),
+                    Ok(()) => {
+                        if let Some(info) = &mut self.session { info.agent = Some(cfg.persona.active.clone()); }
+                        self.voice_sessions.remove(&session.id);
+                    }
                 }
             }
         }

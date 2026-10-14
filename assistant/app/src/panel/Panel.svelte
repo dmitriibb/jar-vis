@@ -20,7 +20,9 @@
   let tasksOpen = $state(false);
   // Ticks so "in 12 min" stays current while the task list is open.
   let now = $state(Date.now());
-  let expanded = $state<Record<number, boolean>>({});
+  let agents = $state<string[]>([]);
+  let agentsOpen = $state(false);
+  let agentsError = $state("");
   let scroller: HTMLElement | undefined = $state();
   let input: HTMLInputElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,6 +55,7 @@
   /** Close every dropdown except the one named. */
   function closeMenus(except = "") {
     if (except !== "menu") menuOpen = false;
+    if (except !== "agents") agentsOpen = false;
     if (except !== "models") modelsOpen = false;
     if (except !== "sessions") sessionsOpen = false;
     if (except !== "tasks") tasksOpen = false;
@@ -113,6 +116,32 @@
     if (key !== snap?.model) api.setModel(key);
   }
 
+  async function toggleAgents() {
+    closeMenus("agents");
+    agentsOpen = !agentsOpen;
+    if (!agentsOpen) return;
+    agents = [];
+    try { agents = await api.listSessionAgents(); agentsError = ""; }
+    catch (e) { agentsError = String(e); }
+  }
+
+  function pickAgent(agent: string) {
+    closeMenus();
+    api.setSessionAgent(agent);
+  }
+
+  const separator = "-----------------------------------------";
+  const streamSummary = $derived.by(() => {
+    const lines = stream.split(/\r?\n/);
+    const boundary = lines.findIndex((line) => line.trim() === separator || line.trim() === "---");
+    const intro = (boundary >= 0 ? lines.slice(0, boundary) : lines).join("\n").replace(/\n-+$/, "");
+    return intro.trim().split(/\s+/).slice(0, 50).join(" ");
+  });
+
+  function detailsSize(text: string): string {
+    return Array.from(text).length.toLocaleString("en-US");
+  }
+
   function md(text: string): string {
     return DOMPurify.sanitize(marked.parse(text, { async: false, breaks: true }) as string);
   }
@@ -126,7 +155,7 @@
     const after = next.history.at(-1);
     const answered = !!after && !after.pending && (before?.pending || before?.time !== after.time);
     if (!next.history.some((e) => e.pending)) stream = "";
-    if (next.session?.id !== snap?.session?.id) expanded = {};
+    if (next.session?.id !== snap?.session?.id) { stream = ""; closeMenus(); }
     // The list depends on the server and on the session's directory.
     const reload = !!next.backend && (!snap?.backend || next.session?.directory !== snap?.session?.directory || !models.length);
     snap = next;
@@ -192,7 +221,7 @@
   }
 
   async function copyAnswer(i: number, e: Exchange) {
-    const text = e.details ? e.summary + "\n\n" + e.details : e.summary || e.error || "";
+    const text = e.summary || e.error || "";
     await api.copyText(text).catch((err) => console.error(err));
     copied = i;
     setTimeout(() => (copied === i ? (copied = -1) : null), 1500);
@@ -221,9 +250,7 @@
     }
   }
 
-  function isOpen(i: number, e: Exchange, last: boolean): boolean {
-    return expanded[i] ?? (last && e.details.length > 0 && e.details.length < 600);
-  }
+
 </script>
 
 <svelte:window onblur={onWindowBlur} />
@@ -274,6 +301,20 @@
   </header>
 
   <div class="modelbar">
+    <div class="menu">
+      <button class="model" title="Select OpenCode agent" disabled={!snap?.backend || busy} onclick={toggleAgents}>
+        {snap?.session?.agent ?? "Agent"} ▾
+      </button>
+      {#if agentsOpen}
+        <div class="dropdown models">
+          {#if agentsError}<p class="error">{agentsError}</p>{/if}
+          {#if !agents.length && !agentsError}<p class="hint">No primary agents available.</p>{/if}
+          {#each agents as agent (agent)}
+            <button class:current={agent === snap?.session?.agent} onclick={() => pickAgent(agent)}>{agent}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <span class="label">Model</span>
     <button class="model" title={snap?.model ?? ""} disabled={!snap?.backend} onclick={toggleModels}>
       <span class="model-name">{modelName}</span> ▾
@@ -350,24 +391,23 @@
               {snap?.detail && snap.state === "working" ? snap.detail : "working…"}
             {/if}
           </p>
-          {#if stream}<div class="stream">{stream}</div>{/if}
+          {#if streamSummary}<div class="stream">{streamSummary}</div>{/if}
         {:else if e.error}
           <p class="error">{e.error}</p>
         {:else}
           <p class="summary">{e.summary}</p>
+          {#if e.details}
+            <details class="full-answer">
+              <summary class="answer-size" title="Expand or collapse the full answer">(full answer {detailsSize(e.details)})</summary>
+              <div class="details">{@html md(e.details)}</div>
+            </details>
+          {/if}
           <div class="actions">
-            {#if e.details}
-              <button class="ghost toggle" onclick={() => (expanded[i] = !isOpen(i, e, last))}>
-                Details {isOpen(i, e, last) ? "▾" : "▸"}
-              </button>
-            {/if}
             <button class="ghost toggle copy" title="Copy this answer" onclick={() => copyAnswer(i, e)}>
               {copied === i ? "Copied ✓" : "Copy"}
             </button>
           </div>
-          {#if e.details && isOpen(i, e, last)}
-            <div class="details">{@html md(e.details)}</div>
-          {/if}
+
         {/if}
       </article>
     {/each}
@@ -648,49 +688,31 @@
     font-size: 10px;
     opacity: 0.7;
   }
-  .summary {
-    font-size: 15px;
-    line-height: 1.4;
-    user-select: text;
-    -webkit-user-select: text;
+  .answer-size {
+    color: var(--muted, #888);
+    font-size: 11px;
+    margin-top: 6px;
+    cursor: pointer;
   }
-  article.old .summary {
-    font-size: 13px;
-  }
-  .error {
-    color: var(--danger);
-    user-select: text;
-    -webkit-user-select: text;
-  }
-  .actions {
-    display: flex;
-    gap: 10px;
-  }
-  .toggle.copy {
-    color: var(--muted);
-  }
-  .toggle {
+  .answer-size:hover,
+  .answer-size:focus-visible {
     color: var(--accent);
-    font-size: 11.5px;
-    padding-left: 0;
   }
-  .details,
-  .stream {
+  .full-answer {
     align-self: stretch;
+    min-width: 0;
+  }
+  .details {
+    margin-top: 6px;
     padding: 8px 10px;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 8px;
     line-height: 1.45;
     overflow-x: auto;
+    overflow-wrap: anywhere;
     user-select: text;
     -webkit-user-select: text;
-  }
-  .stream {
-    color: var(--muted);
-    white-space: pre-wrap;
-    max-height: 120px;
-    overflow-y: auto;
   }
   .details :global(pre) {
     background: #0a0d13;
@@ -727,6 +749,50 @@
   .details :global(th) {
     border: 1px solid var(--border);
     padding: 2px 6px;
+  }
+
+  .summary {
+    font-size: 15px;
+    line-height: 1.4;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  article.old .summary {
+    font-size: 13px;
+  }
+  .error {
+    color: var(--danger);
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+  }
+  .toggle.copy {
+    color: var(--muted);
+  }
+  .toggle {
+    color: var(--accent);
+    font-size: 11.5px;
+    padding-left: 0;
+  }
+  .stream {
+    align-self: stretch;
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    line-height: 1.45;
+    overflow-x: auto;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .stream {
+    color: var(--muted);
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
   }
   .progress {
     display: flex;

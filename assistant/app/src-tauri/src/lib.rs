@@ -142,6 +142,8 @@ pub fn run() {
             ipc::set_personality,
             ipc::set_muted,
             ipc::list_agent_models,
+            ipc::list_session_agents,
+            ipc::set_session_agent,
             ipc::set_model,
             ipc::send_text,
             ipc::new_session,

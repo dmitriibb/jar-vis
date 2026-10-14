@@ -19,6 +19,7 @@ export interface BackendInfo {
 }
 
 export interface SessionView {
+  agent: string | null;
   id: string;
   title: string | null;
   directory: string;
@@ -111,6 +112,7 @@ export interface Config {
     username: string;
     password: string;
     workspace_dir: string;
+    agent: string;
     model: string;
   };
   persona: { active: string; pet: string };

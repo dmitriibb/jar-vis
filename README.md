@@ -111,10 +111,16 @@ The phrase lists are in the `[commands]` section of the config file.
 
 - **Session title ▾** switches between Jar-vis sessions, or starts a new one. The history of the session you switch
   to is loaded from opencode.
+- **Agent ▾** lists visible OpenCode agents that can lead a session (primary or all). The selected agent is remembered for new workspace sessions.
 - **Model ▾** lists the models opencode offers and switches the current session to the one you pick. In the Jar-vis
   workspace the choice is also remembered for new sessions.
 - **⏱** lists the scheduled tasks of every session, with a Cancel button for each.
-- **Copy** under an answer copies it. Selecting text and pressing Ctrl+C works too.
+- Answers show the spoken introduction (at most 50 words), followed by a clickable `(full answer 12,345)` when details exist. Click the line to expand or collapse the rest of the answer, initially collapsed. The number counts characters after the separator. Only the introduction is spoken. The full answer also remains available in OpenCode or OpenChamber.
+- **Copy** under an answer copies the introduction. Selecting text and pressing Ctrl+C works too.
+
+### Jarvis session skill
+
+Copy `assistant/skills/jarvis-session/SKILL.md` into `~/.agents/skills/jarvis-session/SKILL.md` to make the format skill available to OpenCode in every project. Jar-vis asks the selected agent to load it on the first prompt of each session during an app run and after an agent change. Later prompts include a formatting reminder. The skill controls answer formatting only; the selected agent keeps its normal tools and workflow. Jar-vis also supplies the format instructions directly, so a missing skill does not prevent a turn.
 
 ### Scheduled tasks
 
@@ -179,7 +185,7 @@ Everything you author lives under `assistant/` in the home folder.
 - `assistant/agents/<name>.md` is a personality: an opencode agent file with an extra `jarvis:` block for the display
   name, voice, speed and pet.
 - `assistant/agents/_voice-rules.md` is appended to every personality. It tells the agent to lead with a short
-  spoken summary, then a line containing only `---`, then the details.
+  spoken introduction of at most 50 words, then a line containing only `-----------------------------------------`, then the full answer.
 - `assistant/skills/<name>/SKILL.md` is an opencode skill.
 
 At startup, and when you press **Re-sync** in Settings, Jar-vis generates `sessions/.opencode/` from these files.

@@ -131,6 +131,15 @@ pub fn attach_prefix(config: &Config) -> String {
     format!("[voice mode: {voice}\n\n{}\n]\n\n", schedule_rules(config).trim())
 }
 
+/// Explicitly load the format skill once, then send only a small format reminder.
+/// The voice-mode wrapper is stripped when rebuilding the user's transcript.
+pub fn session_prefix(config: &Config, first: bool) -> String {
+    let activation = if first {
+        "jarvis-session: Load the jarvis-session skill and apply its answer format for this session. "
+    } else { "" };
+    format!("[voice mode: {activation}Answer format only: plain spoken introduction of at most 50 words, then a standalone {} line, then your normal full answer. Do not announce this mode.\n\n{}\n]\n\n", crate::reply::SEPARATOR, schedule_rules(config).trim())
+}
+
 fn personality_from(name: &str, front: &Mapping) -> Personality {
     let meta = front.get("jarvis").and_then(Value::as_mapping);
     let text = |m: Option<&Mapping>, key: &str| {
@@ -310,6 +319,18 @@ mod tests {
     use super::*;
 
     const SOURCE: &str = "---\ndescription: Test persona\nmode: primary\npermission:\n  edit: ask\n  bash:\n    \"*\": ask\n    \"ls *\": allow\njarvis:\n  display_name: Testy\n  voice: piper-en_GB-alan-medium\n  speed: 1.1\n  pet: default\n---\nYou are Testy.\n";
+
+    #[test]
+    fn session_format_notes_are_hidden_in_history_and_keep_scheduled_prompts() {
+        let cfg = Config::default();
+        for first in [true, false] {
+            let note = session_prefix(&cfg, first);
+            assert!(note.contains(crate::reply::SEPARATOR));
+            assert_eq!(note.contains("Load the jarvis-session skill"), first);
+            let wire = format!("{note}[scheduled task: background run.]\n\nCheck the build");
+            assert_eq!(crate::schedule::display_text(&wire), ("Check the build".to_string(), true));
+        }
+    }
 
     #[test]
     fn frontmatter_split() {

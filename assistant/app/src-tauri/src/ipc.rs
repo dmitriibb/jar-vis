@@ -83,6 +83,7 @@ pub fn apply_personality(app: &Arc<App>, name: &str) {
         return;
     }
     cfg.persona.active = name.to_string();
+    cfg.opencode.agent.clear();
     if let Some(pet) = personas::find(&cfg, name).and_then(|p| p.pet) {
         cfg.persona.pet = pet;
     }
@@ -107,6 +108,18 @@ pub async fn list_agent_models(app: Shared<'_>) -> CmdResult<Vec<ModelInfo>> {
         .map(|s| s.directory.clone())
         .unwrap_or_else(|| app.config.read().workspace_dir());
     app.backend.list_models(&dir).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn list_session_agents(app: Shared<'_>) -> CmdResult<Vec<String>> {
+    let dir = app.state.lock().current_session.as_ref().map(|s| s.directory.clone())
+        .unwrap_or_else(|| app.config.read().workspace_dir());
+    app.backend.list_agents(&dir).await.map_err(err)
+}
+
+#[tauri::command]
+pub fn set_session_agent(app: Shared, agent: String) {
+    app.send(Event::SetAgent(agent));
 }
 
 /// `model` is `provider/id`.

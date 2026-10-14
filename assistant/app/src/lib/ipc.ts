@@ -27,6 +27,8 @@ export const api = {
   setPersonality: (name: string) => invoke<void>("set_personality", { name }),
   setMuted: (muted: boolean) => invoke<void>("set_muted", { muted }),
   listAgentModels: () => invoke<AgentModel[]>("list_agent_models"),
+  listSessionAgents: () => invoke<string[]>("list_session_agents"),
+  setSessionAgent: (agent: string) => invoke<void>("set_session_agent", { agent }),
   setModel: (model: string) => invoke<void>("set_model", { model }),
 
   sendText: (text: string) => invoke<void>("send_text", { text }),

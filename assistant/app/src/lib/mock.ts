@@ -13,7 +13,7 @@ let snapshot: Snapshot = {
   detail: null,
   muted: false,
   backend: { version: "2.0.26", url: "http://127.0.0.1:49374" },
-  session: { id: "ses_mock123", title: "Checking the build", directory: "C:/projects/jar-vis/sessions", mode: "workspace", project: "sessions" },
+  session: { id: "ses_mock123", title: "Checking the build", directory: "C:/projects/jar-vis/sessions", mode: "workspace", project: "sessions", agent: "build" },
   history: [
     { transcript: "what's two plus two", summary: "Four.", details: "", pending: false, scheduled: false, error: null, time: now - 300_000 },
     {
@@ -71,7 +71,7 @@ let config: Config = {
   audio: { input_device: "", tts_enabled: true },
   stt: { model: "base.en-q5_1", preload: true, unload_after_idle_minutes: 0, min_seconds: 0.35, max_seconds: 120, vocabulary: "opencode, Tauri, Rust" },
   tts: { voice: "piper-en_US-lessac-medium", speed: 1, max_spoken_chars: 400, unload_after_idle_minutes: 30 },
-  opencode: { url: "", autostart: true, stop_on_exit: false, binary: "", username: "opencode", password: "", workspace_dir: "", model: "" },
+  opencode: { url: "", autostart: true, stop_on_exit: false, binary: "", username: "opencode", password: "", workspace_dir: "", model: "", agent: "" },
   persona: { active: "jarvis", pet: "default" },
   attach: { override_agent: "" },
   openchamber: { url: "", app_path: "" },
@@ -130,6 +130,11 @@ export function install() {
           });
         case "copy_text":
           console.debug("[mock] copied", args.text);
+          return;
+        case "list_session_agents": return ["build", "plan", "jarvis"];
+        case "set_session_agent":
+          if (snapshot.session) snapshot.session.agent = String(args.agent);
+          set({ session: snapshot.session });
           return;
         case "list_agent_models":
           return [

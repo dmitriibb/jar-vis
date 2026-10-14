@@ -106,6 +106,7 @@ pub struct Snapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionView {
+    pub agent: Option<String>,
     pub id: String,
     pub title: Option<String>,
     pub directory: String,

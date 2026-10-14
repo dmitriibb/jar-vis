@@ -6,25 +6,47 @@ pub struct Reply {
     pub details: String,
 }
 
-/// The agent is told to put a line containing only `---` between the spoken
-/// summary and the details. Without one, the first two sentences are the summary
-/// and the whole text is the details.
+pub const SEPARATOR: &str = "-----------------------------------------";
+pub const MAX_SUMMARY_WORDS: usize = 50;
+
+/// Split on the first standalone separator outside fenced code blocks.
+/// Accept `---` for replies saved before this protocol was introduced.
 pub fn split(text: &str, max_spoken_chars: usize) -> Reply {
     let text = text.trim();
     let mut offset = 0;
+    let mut fence: Option<(char, usize)> = None;
     for line in text.split_inclusive('\n') {
-        if line.trim() == "---" && offset > 0 {
-            let summary = text[..offset].trim().to_string();
-            let details = text[offset + line.len()..].trim().to_string();
-            if !summary.is_empty() {
-                return Reply { summary, details };
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            let marker = trimmed.chars().next().unwrap();
+            let len = trimmed.chars().take_while(|c| *c == marker).count();
+            match fence {
+                None => fence = Some((marker, len)),
+                Some((open, count)) if open == marker && len >= count
+                    && trimmed[len..].trim().is_empty() => fence = None,
+                _ => {},
+            }
+        } else if fence.is_none() && (trimmed == SEPARATOR || trimmed == "---") && offset > 0 {
+            let intro = text[..offset].trim();
+            if !intro.is_empty() {
+                return Reply {
+                    summary: limit_summary(intro, max_spoken_chars),
+                    details: text[offset + line.len()..].trim().to_string(),
+                };
             }
         }
         offset += line.len();
     }
-    let summary = first_sentences(text, 2, max_spoken_chars);
+    let summary = limit_summary(&first_sentences(text, 2, max_spoken_chars), max_spoken_chars);
     let details = if summary == text { String::new() } else { text.to_string() };
     Reply { summary, details }
+}
+
+pub fn limit_summary(text: &str, max_chars: usize) -> String {
+    let mut words = text.split_whitespace();
+    let limited = words.by_ref().take(MAX_SUMMARY_WORDS).collect::<Vec<_>>().join(" ");
+    let limited = if words.next().is_some() { format!("{limited}…") } else { limited };
+    truncate_at_sentence(&limited, max_chars)
 }
 
 /// The first `count` sentences of `text`, cut to at most `max_chars`.
@@ -99,6 +121,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn exact_separator_and_limits_apply_to_formatted_replies() {
+        let text = format!("{}\n{SEPARATOR}\nFull answer", "word ".repeat(80));
+        let r = split(&text, 10000);
+        assert_eq!(r.summary.split_whitespace().count(), 50);
+        assert_eq!(r.details, "Full answer");
+        assert!(split(&text, 40).summary.chars().count() <= 41);
+    }
+
+    #[test]
+    fn does_not_split_code_fences_or_later_separators() {
+        let text = format!("Intro.\n```text\n{SEPARATOR}\n```\n{SEPARATOR}\nDetails\n{SEPARATOR}\nMore.");
+        let r = split(&text, 1000);
+        assert!(r.summary.contains("```"));
+        assert_eq!(r.details, format!("Details\n{SEPARATOR}\nMore."));
+    }
+
+    #[test]
     fn splits_on_separator() {
         let r = split("All tests pass.\n---\n## Details\n- 12 passed", 400);
         assert_eq!(r.summary, "All tests pass.");
@@ -115,7 +154,7 @@ mod tests {
     #[test]
     fn leading_separator_is_not_a_split() {
         let r = split("---\nJust text. And more. And a third.", 400);
-        assert_eq!(r.summary, "---\nJust text. And more.");
+        assert_eq!(r.summary, "--- Just text. And more.");
     }
 
     #[test]

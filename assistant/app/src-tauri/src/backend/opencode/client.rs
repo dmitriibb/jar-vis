@@ -265,7 +265,7 @@ impl Client<'_> {
             }
             let res: Data<Vec<Value>> =
                 Self::send(Self::at(self.request(Method::GET, "/api/agent"), dir)).await?.json().await?;
-            agents = res.data.iter().filter_map(|a| a.get("id").and_then(Value::as_str)).map(str::to_string).collect();
+            agents = primary_agents(&res.data);
             if !agents.is_empty() {
                 break;
             }
@@ -369,8 +369,28 @@ pub fn last_assistant_text(messages: &[Value]) -> Result<String> {
     }
 }
 
+/// Only visible agents that can lead a session belong in the selector.
+fn primary_agents(agents: &[Value]) -> Vec<String> {
+    agents.iter().filter(|a| {
+        matches!(a.get("mode").and_then(Value::as_str).unwrap_or("primary"), "primary" | "all")
+            && a.get("hidden").and_then(Value::as_bool) != Some(true)
+            && a.get("disabled").and_then(Value::as_bool) != Some(true)
+    }).filter_map(|a| a.get("id").and_then(Value::as_str)).map(str::to_string).collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lists_only_visible_primary_capable_agents() {
+        let agents = serde_json::json!([
+            {"id":"build","mode":"primary"}, {"id":"custom","mode":"all"},
+            {"id":"default"}, {"id":"explore","mode":"subagent"},
+            {"id":"title","mode":"primary","hidden":true},
+            {"id":"off","mode":"primary","disabled":true}
+        ]);
+        assert_eq!(super::primary_agents(agents.as_array().unwrap()), vec!["build", "custom", "default"]);
+    }
+
     use super::*;
     use serde_json::json;
 
