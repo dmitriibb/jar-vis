@@ -20,7 +20,7 @@ First launch
 Home folder: the wizard asks where Jar-vis keeps its personalities and models. Point it at your cloned repo folder to reuse the ones there, or accept the default ~/jar-vis.
 Speech models: they are not in git, so the wizard downloads them again (about 130 MB).
 Microphone: macOS asks the first time you hold the key; allow it.
-Accessibility: needed for the push-to-talk key to work while other apps have focus. Add Jar-vis under System Settings → Privacy & Security → Accessibility, then restart it. The default key is Right ⌘.
+Accessibility: needed for the global push-to-talk key to work while other apps have focus. Add Jar-vis under System Settings → Privacy & Security → Accessibility, then restart it. The default key is Right ⌘. If your Mac blocks the key listener, hold a two-finger physical click on the pet to talk and release to send. A brief two-finger click opens the pet menu. You can also enable the pet's hold-to-talk mic button in Settings → General.
 Two things that may surprise you
 No Dock icon while it runs. By design it lives in the menu bar (plus the pet on screen). The app icon is still in Applications and Launchpad for starting it. If you’d rather have a Dock icon, that’s a small change.
 Rebuilding resets the Accessibility permission. The build is unsigned, so macOS treats each rebuild as a new app and you have to re-grant it. If you only build occasionally, this is a minor nuisance.

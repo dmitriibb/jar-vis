@@ -30,6 +30,8 @@ const ERROR_SECONDS: u64 = 6;
 
 pub enum Event {
     Hotkey(HotkeyEvent),
+    PetPttDown(PetPttSource),
+    PetPttUp(PetPttSource),
     /// Recognized speech, or text typed into the panel (`typed`).
     Transcript { text: String, typed: bool },
     SttFailed(String),
@@ -53,6 +55,19 @@ pub enum Event {
     ModelsChanged,
     /// Something outside the orchestrator changed what the windows show.
     Refresh,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PetPttSource {
+    Secondary,
+    MicButton,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PttSource {
+    Hotkey,
+    Pet(PetPttSource),
 }
 
 /// A short-lived state shown on top of the turn state.
@@ -87,6 +102,7 @@ pub struct Orchestrator {
     overlay: Overlay,
     error_generation: u64,
     recorder: Option<Recorder>,
+    ptt_source: Option<PttSource>,
     /// A turn is running in the current session.
     turn_active: bool,
     /// The running turn was started by Jar-vis, so its answer is shown and spoken.
@@ -120,6 +136,7 @@ impl Orchestrator {
             overlay: Overlay::None,
             error_generation: 0,
             recorder: None,
+            ptt_source: None,
             turn_active: false,
             own_turn: false,
             own_scheduled: false,
@@ -258,6 +275,7 @@ impl Orchestrator {
             hotkey: cfg.hotkey.key.clone(),
             hotkey_listening: self.app.hotkey.is_listening(),
             sleep_after_minutes: cfg.ui.sleep_after_minutes,
+            pet_mic_button: cfg.ui.pet_mic_button,
             stream_text: cfg.ui.stream_text,
             wizard_done: cfg.wizard_done,
         };
@@ -286,13 +304,15 @@ impl Orchestrator {
         match event {
             Event::Hotkey(HotkeyEvent::Down) => {
                 tracing::info!("push-to-talk key down");
-                self.ptt_down()
+                self.ptt_down(PttSource::Hotkey)
             }
             Event::Hotkey(HotkeyEvent::Up) => {
                 tracing::info!("push-to-talk key up");
-                self.ptt_up()
+                self.ptt_up(PttSource::Hotkey)
             }
             Event::Hotkey(HotkeyEvent::Chord) => self.ptt_chord(),
+            Event::PetPttDown(source) => self.ptt_down(PttSource::Pet(source)),
+            Event::PetPttUp(source) => self.ptt_up(PttSource::Pet(source)),
             Event::Transcript { text, typed } => self.on_transcript(text, typed).await,
             Event::SttFailed(message) => {
                 self.overlay = Overlay::None;
@@ -349,7 +369,7 @@ impl Orchestrator {
 
     // ---- push-to-talk ---------------------------------------------------
 
-    fn ptt_down(&mut self) {
+    fn ptt_down(&mut self, source: PttSource) {
         // Offline there is nobody to talk to; while a clip is in flight, wait for it.
         if !self.connected || matches!(self.overlay, Overlay::Listening | Overlay::Transcribing | Overlay::Sending) {
             return;
@@ -365,6 +385,7 @@ impl Orchestrator {
         match started {
             Ok(recorder) => {
                 self.recorder = Some(recorder);
+                self.ptt_source = Some(source);
                 self.overlay = Overlay::Listening;
             }
             Err(e) => self.fail(format!("Microphone: {e:#}")),
@@ -372,18 +393,23 @@ impl Orchestrator {
     }
 
     fn ptt_chord(&mut self) {
-        if self.overlay == Overlay::Listening && self.app.config.read().hotkey.cancel_on_chord {
+        if self.overlay == Overlay::Listening
+            && self.ptt_source == Some(PttSource::Hotkey)
+            && self.app.config.read().hotkey.cancel_on_chord
+        {
             if let Some(recorder) = self.recorder.take() {
                 recorder.cancel();
             }
+            self.ptt_source = None;
             self.overlay = Overlay::None;
         }
     }
 
-    fn ptt_up(&mut self) {
-        if self.overlay != Overlay::Listening {
+    fn ptt_up(&mut self, source: PttSource) {
+        if self.overlay != Overlay::Listening || self.ptt_source != Some(source) {
             return;
         }
+        self.ptt_source = None;
         self.overlay = Overlay::None;
         let Some(recorder) = self.recorder.take() else { return };
         let captured = match recorder.finish() {

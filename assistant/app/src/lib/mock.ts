@@ -60,6 +60,7 @@ let snapshot: Snapshot = {
   hotkey: "ControlRight",
   hotkeyListening: true,
   sleepAfterMinutes: 10,
+  petMicButton: false,
   streamText: false,
   wizardDone: true,
 };
@@ -76,7 +77,7 @@ let config: Config = {
   attach: { override_agent: "" },
   openchamber: { url: "", app_path: "" },
   commands: { wake_word: "jarvis", new_session: [], stop: [], mute: [], unmute: [], repeat: [] },
-  ui: { panel_auto_show: true, panel_auto_hide_seconds: 0, stream_text: false, sleep_after_minutes: 10 },
+  ui: { panel_auto_show: true, panel_auto_hide_seconds: 0, stream_text: false, sleep_after_minutes: 10, pet_mic_button: false },
   models: { dir: "" },
   log: { level: "info" },
 };
@@ -118,7 +119,14 @@ export function install() {
           return config;
         case "save_config":
           config = args.config as Config;
+          set({ petMicButton: config.ui.pet_mic_button });
           return config;
+        case "pet_ptt_down":
+          set({ state: "listening" });
+          return;
+        case "pet_ptt_up":
+          set({ state: "transcribing" });
+          return;
         case "set_muted":
           return set({ muted: args.muted as boolean });
         case "cancel_task":

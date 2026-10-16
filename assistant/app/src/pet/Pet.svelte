@@ -8,6 +8,8 @@
 
   const TOAST_MS = 5000;
   const DRAG_THRESHOLD = 4;
+  const SECONDARY_HOLD_MS = 250;
+  type PetPttSource = "secondary" | "mic_button";
 
   let snap = $state<Snapshot | null>(null);
   let level = $state(0);
@@ -19,6 +21,10 @@
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let press: { x: number; y: number } | null = null;
   let dragged = false;
+  let secondaryPressed = false;
+  let secondaryTimer: ReturnType<typeof setTimeout> | undefined;
+  let activePtt = $state<PetPttSource | null>(null);
+  let pttStarted: Promise<void> | null = null;
 
   // "sleeping" is a UI-only state: idle for longer than the configured timeout.
   const visual = $derived.by(() => {
@@ -47,7 +53,7 @@
       case "offline":
         return { text: snap.detail ?? "offline", kind: "warn" };
       default:
-        if (!snap.hotkeyListening) return { text: "key listener is off — see Settings", kind: "warn" };
+        if (!snap.hotkeyListening) return { text: "hold secondary click to talk", kind: "info" };
         if (!snap.wizardDone) return { text: `hold ${keyLabel(snap.hotkey)} to talk`, kind: "info" };
         return snap.queued > 0 ? { text: `${snap.queued} queued`, kind: "info" } : null;
     }
@@ -77,19 +83,71 @@
     ];
     api.getSnapshot().then(apply);
     const clock = setInterval(() => (now = Date.now()), 15_000);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", cancelPetPress);
+    window.addEventListener("blur", cancelPetPress);
     return () => {
       clearInterval(clock);
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", cancelPetPress);
+      window.removeEventListener("blur", cancelPetPress);
+      cancelPetPress();
       unlisten.forEach((u) => u.then((f) => f()));
     };
   });
 
+  function startPetPtt(source: PetPttSource) {
+    if (activePtt) return;
+    activePtt = source;
+    pttStarted = api.petPttDown(source).catch((error) => {
+      console.error("Could not start pet push-to-talk:", error);
+    });
+  }
+
+  function stopPetPtt(source: PetPttSource) {
+    if (activePtt !== source) return;
+    activePtt = null;
+    const started = pttStarted;
+    pttStarted = null;
+    // Keep the down/up IPC calls ordered, including a quick tap.
+    void started?.then(() => api.petPttUp(source)).catch((error) => {
+      console.error("Could not stop pet push-to-talk:", error);
+    });
+  }
+
+  function onWindowPointerUp(e: PointerEvent) {
+    if (e.button === 2 && secondaryPressed) {
+      secondaryPressed = false;
+      clearTimeout(secondaryTimer);
+      if (activePtt === "secondary") stopPetPtt("secondary");
+      else if (!activePtt) api.petMenu();
+    }
+    if (e.button === 0) stopPetPtt("mic_button");
+  }
+
+  function cancelPetPress() {
+    secondaryPressed = false;
+    clearTimeout(secondaryTimer);
+    if (activePtt) stopPetPtt(activePtt);
+  }
+
   // A press that moves becomes a window drag; one that does not is a click.
-  function onMouseDown(e: MouseEvent) {
+  function onPointerDown(e: PointerEvent) {
+    if (e.button === 2) {
+      e.preventDefault();
+      if (e.currentTarget instanceof Element) e.currentTarget.setPointerCapture(e.pointerId);
+      secondaryPressed = true;
+      clearTimeout(secondaryTimer);
+      secondaryTimer = setTimeout(() => {
+        if (secondaryPressed) startPetPtt("secondary");
+      }, SECONDARY_HOLD_MS);
+      return;
+    }
     if (e.button !== 0) return;
     press = { x: e.screenX, y: e.screenY };
     dragged = false;
   }
-  function onMouseMove(e: MouseEvent) {
+  function onPointerMove(e: PointerEvent) {
     if (!press || !(e.buttons & 1)) return;
     if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > DRAG_THRESHOLD) {
       press = null;
@@ -97,14 +155,24 @@
       getCurrentWindow().startDragging();
     }
   }
-  function onClick() {
+  function onClick(e: MouseEvent) {
+    if (e.button !== 0) return;
     if (dragged) return;
     idleSince = Date.now();
     api.togglePanel();
   }
   function onContextMenu(e: MouseEvent) {
     e.preventDefault();
-    api.petMenu();
+    // The short secondary press opens the menu on release.
+  }
+
+  function onMicDown(e: PointerEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (e.button === 0) {
+      if (e.currentTarget instanceof Element) e.currentTarget.setPointerCapture(e.pointerId);
+      startPetPtt("mic_button");
+    }
   }
 </script>
 
@@ -113,8 +181,8 @@
   <div
     class="pet"
     title={snap?.session?.title ?? "Jar-vis"}
-    onmousedown={onMouseDown}
-    onmousemove={onMouseMove}
+    onpointerdown={onPointerDown}
+    onpointermove={onPointerMove}
     onclick={onClick}
     ondblclick={() => api.replayLast()}
     oncontextmenu={onContextMenu}
@@ -132,6 +200,24 @@
           <path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" />
         </svg>
       </span>
+    {/if}
+    {#if snap?.petMicButton}
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <button
+        class="talk-button"
+        class:recording={activePtt === "mic_button"}
+        type="button"
+        title="Hold to talk"
+        aria-label="Hold to talk"
+        onpointerdown={onMicDown}
+        onclick={(e) => e.stopPropagation()}
+        oncontextmenu={(e) => e.preventDefault()}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" />
+        </svg>
+      </button>
     {/if}
     {#if snap?.muted}
       <span class="badge mute" title="Muted">🔇</span>
@@ -162,6 +248,7 @@
     height: 128px;
     cursor: grab;
     flex: none;
+    user-select: none;
   }
   .pet:active {
     cursor: grabbing;
@@ -194,6 +281,30 @@
     stroke-width: 2;
     stroke-linecap: round;
   }
+  .talk-button {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+    color: #fff;
+    background: #334155;
+    cursor: pointer;
+  }
+  .talk-button.recording { background: #dc2626; }
+  .talk-button svg {
+    width: 23px;
+    height: 23px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .talk-button rect { fill: currentColor; stroke: none; }
   .mic rect {
     fill: #fff;
     stroke: none;

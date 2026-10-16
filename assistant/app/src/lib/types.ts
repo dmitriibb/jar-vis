@@ -66,6 +66,7 @@ export interface Snapshot {
   hotkey: string;
   hotkeyListening: boolean;
   sleepAfterMinutes: number;
+  petMicButton: boolean;
   streamText: boolean;
   wizardDone: boolean;
 }
@@ -131,6 +132,7 @@ export interface Config {
     panel_auto_hide_seconds: number;
     stream_text: boolean;
     sleep_after_minutes: number;
+    pet_mic_button: boolean;
   };
   models: { dir: string };
   log: { level: string };

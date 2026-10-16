@@ -133,7 +133,7 @@
           <span>Push-to-talk key</span>
           <KeyRecorder bind:value={config.hotkey.key} />
           {#if snap && !snap.hotkeyListening}
-            <small class="warn">The global key listener is not running. On macOS, grant Accessibility access and restart Jar-vis.</small>
+            <small class="warn">The global key listener is off. You can still hold a secondary click on the pet to talk.</small>
           {/if}
         </div>
         <label class="check">
@@ -145,6 +145,11 @@
           <input type="text" class="short" bind:value={config.commands.wake_word} />
         </label>
         <h3>Pet and panel</h3>
+        <label class="check">
+          <input type="checkbox" bind:checked={config.ui.pet_mic_button} />
+          Show a hold-to-talk microphone button on the pet
+        </label>
+        <p class="muted">You can also hold a secondary click on the pet to talk. A short secondary click opens its menu. Both work without the global key listener.</p>
         <label class="field">
           <span>Fall asleep after (minutes idle, 0 = never)</span>
           <input type="number" class="short" min="0" max="600" bind:value={config.ui.sleep_after_minutes} />
@@ -200,7 +205,7 @@
         </div>
         <h3>Try it</h3>
         <div class="test">
-          <div>Hold <strong>{keyLabel(config.hotkey.key)}</strong> and speak. What you say is sent to the current session.</div>
+          <div>Hold <strong>{keyLabel(config.hotkey.key)}</strong>, hold a secondary click on the pet, or hold its mic button if enabled. Release to send.</div>
           <div class="muted">State: {snap?.state ?? "…"}{snap?.detail ? ` — ${snap.detail}` : ""}</div>
           <div class="muted">Last heard: {lastHeard || "—"}</div>
         </div>

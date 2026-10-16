@@ -128,7 +128,7 @@
         <strong>Microphone</strong>
         <div class="muted">
           {#if isMac}
-            macOS asks for microphone access the first time you hold the key. Choose Allow.
+            macOS asks for microphone access the first time you start recording. Choose Allow.
           {:else}
             Windows must allow desktop apps to use the microphone (Settings → Privacy & security → Microphone).
           {/if}
@@ -141,8 +141,8 @@
             <div class="ok">✔ Granted</div>
           {:else}
             <div class="muted">
-              Needed to see the push-to-talk key while another app has focus. Add Jar-vis under Privacy & Security →
-              Accessibility, then restart Jar-vis.
+              Needed for the global push-to-talk key. You can use secondary-click hold on the pet without it.
+              To enable the key, add Jar-vis under Privacy & Security → Accessibility, then restart Jar-vis.
             </div>
             <div class="inline">
               <button onclick={() => api.openAccessibilitySettings()}>Open System Settings</button>
@@ -161,7 +161,7 @@
       <p>Hold this one key to talk and release it to send. A key you rarely use otherwise works best.</p>
       <KeyRecorder bind:value={config.hotkey.key} />
       {#if snap && !snap.hotkeyListening}
-        <p class="error">The global key listener is not running yet. Grant the permission from the previous step and restart Jar-vis.</p>
+        <p class="muted">The global key listener is off. You can continue setup and hold a secondary click on the pet to talk.</p>
       {/if}
     {:else if STEPS[step] === "Speech models"}
       <h2>Download the speech models</h2>
@@ -183,7 +183,7 @@
       {/if}
     {:else if STEPS[step] === "Try it"}
       <h2>Try it</h2>
-      <p>Hold <strong>{keyLabel(config.hotkey.key)}</strong>, say <em>“hello”</em>, and release.</p>
+      <p>Hold <strong>{keyLabel(config.hotkey.key)}</strong> or hold a secondary click on the pet, say <em>“hello”</em>, and release.</p>
       <div class="box">
         <div>State: <strong>{snap?.state ?? "…"}</strong>{snap?.detail ? ` — ${snap.detail}` : ""}</div>
         {#if last}
@@ -205,8 +205,8 @@
     {:else}
       <h2>All set</h2>
       <p>
-        Jar-vis lives in the corner of your screen and in the tray. Click the pet for the panel, right-click it for
-        the menu, and say “start new session” to begin a fresh conversation.
+        Jar-vis lives in the corner of your screen and in the tray. Click the pet for the panel, hold a secondary click
+        to talk, or briefly secondary-click for the menu. Say “start new session” to begin a fresh conversation.
       </p>
       <p class="muted">Everything here can be changed later under Settings in the tray menu.</p>
     {/if}

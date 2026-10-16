@@ -32,6 +32,8 @@ export const api = {
   setModel: (model: string) => invoke<void>("set_model", { model }),
 
   sendText: (text: string) => invoke<void>("send_text", { text }),
+  petPttDown: (source: "secondary" | "mic_button") => invoke<void>("pet_ptt_down", { source }),
+  petPttUp: (source: "secondary" | "mic_button") => invoke<void>("pet_ptt_up", { source }),
   newSession: () => invoke<void>("new_session"),
   abort: () => invoke<void>("abort"),
   replyPermission: (id: string, reply: PermissionReply) => invoke<void>("reply_permission", { id, reply }),

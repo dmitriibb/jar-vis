@@ -99,6 +99,7 @@ pub struct Snapshot {
     /// False when the OS refused the global key hook.
     pub hotkey_listening: bool,
     pub sleep_after_minutes: u32,
+    pub pet_mic_button: bool,
     pub stream_text: bool,
     pub wizard_done: bool,
 }

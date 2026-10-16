@@ -146,6 +146,8 @@ pub fn run() {
             ipc::set_session_agent,
             ipc::set_model,
             ipc::send_text,
+            ipc::pet_ptt_down,
+            ipc::pet_ptt_up,
             ipc::new_session,
             ipc::abort,
             ipc::reply_permission,

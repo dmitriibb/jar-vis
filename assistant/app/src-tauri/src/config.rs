@@ -216,6 +216,8 @@ pub struct UiCfg {
     pub panel_auto_hide_seconds: u32,
     pub stream_text: bool,
     pub sleep_after_minutes: u32,
+    /// Show a primary-button hold-to-talk control on the pet.
+    pub pet_mic_button: bool,
 }
 
 impl Default for UiCfg {
@@ -225,6 +227,7 @@ impl Default for UiCfg {
             panel_auto_hide_seconds: 0,
             stream_text: false,
             sleep_after_minutes: 10,
+            pet_mic_button: false,
         }
     }
 }

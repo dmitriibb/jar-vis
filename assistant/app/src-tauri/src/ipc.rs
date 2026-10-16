@@ -16,7 +16,7 @@ use crate::backend::{AgentBackend, BackendInfo, ModelInfo, PermissionReply, Proj
 use crate::config::{self, Config};
 use crate::launch::{self, OpenchamberTarget};
 use crate::models::ModelStatus;
-use crate::orchestrator::Event;
+use crate::orchestrator::{Event, PetPttSource};
 use crate::personas::{self, Personality};
 use crate::windows;
 
@@ -139,6 +139,17 @@ pub fn set_muted(app: Shared, muted: bool) {
 #[tauri::command]
 pub fn send_text(app: Shared, text: String) {
     app.send(Event::Transcript { text, typed: true });
+}
+
+/// Pet gestures reach the recorder without the global accessibility key hook.
+#[tauri::command]
+pub fn pet_ptt_down(app: Shared, source: PetPttSource) {
+    app.send(Event::PetPttDown(source));
+}
+
+#[tauri::command]
+pub fn pet_ptt_up(app: Shared, source: PetPttSource) {
+    app.send(Event::PetPttUp(source));
 }
 
 #[tauri::command]
