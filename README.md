@@ -51,6 +51,21 @@ npm run tauri build
 npm run bundle:windows
 ```
 
+To copy an existing Windows release into `assistant/app/release-app`, run from
+the repository root (no build tools or Node are needed for the copy):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\assistant\app\copy-release.ps1
+```
+
+Launch `assistant/app/release-app/jar-vis.exe`. The script copies the executable
+and the runtime DLLs listed in `bundle.windows.json`, checks that every input
+exists before copying, and leaves all source files in place. Running it again
+overwrites the corresponding copies without deleting anything. It excludes
+OpenCode, build caches, source code and speech models. On this machine the copied
+app reuses the existing settings and home folder: keep `models/`,
+`assistant/agents/`, `assistant/skills/`, `assistant/pets/` and `sessions/`.
+
 To work on everything except speech without CMake and libclang, turn the speech engines off:
 
 ```bash

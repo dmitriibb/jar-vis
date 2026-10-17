@@ -3,6 +3,7 @@ target/
 node_modules/
 dist/
 assistant/app/src-tauri/gen/
+assistant/app/release-app/
 
 # downloaded models
 models/*
