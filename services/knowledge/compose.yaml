@@ -1,0 +1,22 @@
+# Development only: loopback port, public development credentials, persistent volume.
+# Never expose this database directly to the LAN or the Internet.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jarvis_knowledge}
+      POSTGRES_USER: ${POSTGRES_USER:-jarvis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis-dev-only}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - knowledge-db:/var/lib/postgresql/data
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  knowledge-db:

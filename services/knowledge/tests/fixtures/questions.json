@@ -1,0 +1,6 @@
+[
+  {"query":"starting copper coins","expected_heading":"Setup","expected_text":"seven copper coins"},
+  {"query":"trade spice","expected_heading":"Trading","expected_text":"three copper coins"},
+  {"query":"lighthouse victory points","expected_heading":"Scoring","expected_text":"nine victory points"},
+  {"query":"dragon combat","expected_heading":null,"expected_text":null}
+]

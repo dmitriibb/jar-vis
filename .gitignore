@@ -16,3 +16,12 @@ sessions/*
 
 .DS_Store
 *.log
+
+# Optional knowledge service: private originals and local development token
+services/knowledge/.data/
+services/server/.data/
+
+# Local configuration and secrets; commit templates only
+.env
+.env.*
+!.env.example

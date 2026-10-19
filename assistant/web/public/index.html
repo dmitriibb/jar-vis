@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101c20">
+  <title>Jarvis · Your little companion</title>
+  <link rel="icon" href="/pet.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="welcome">
+    <a class="wordmark" href="/" aria-label="Jarvis home"><img src="/pet.svg" alt="" width="38" height="38">jarvis<span>WEB</span></a>
+    <div class="intro"><p class="eyebrow"><span class="small-dot"></span> A LITTLE COMPANY. A LOT OF POSSIBILITY.</p>
+      <h1>A familiar face.<br>A little more <em>help.</em></h1>
+      <p class="lede">Your conversations and knowledge,<br>with a companion always within reach.</p>
+      <button id="open-hero" class="primary">Say hello to Jarvis <span aria-hidden="true">↗</span></button>
+      <div class="features"><span>01 &nbsp; Ask a question</span><span>02 &nbsp; Bring your knowledge</span><span>03 &nbsp; Pick up where you left off</span></div>
+    </div>
+    <div class="orbit-art" aria-hidden="true"><div class="orbit one"></div><div class="orbit two"></div><span class="spark s1">✦</span><span class="spark s2">✧</span><img src="/pet.svg" alt=""><span class="art-note">A small friend for big ideas.</span></div>
+    <footer><span>YOUR SPACE, WITH A LITTLE SPARK.</span><span>Powered by your OpenCode</span></footer>
+  </main>
+  <div id="widget">
+    <section id="panel" class="panel" aria-label="Jarvis conversation" hidden>
+      <header class="panel-header compact-header">
+        <span id="connection-status" class="sr-only">Ready when you are</span>
+        <button id="recent-sessions" class="icon" title="10 latest sessions" aria-label="Recent sessions" aria-expanded="false" aria-controls="session-menu">◷</button>
+        <button id="new-session" class="icon" title="New session" aria-label="New session">＋</button>
+        <button id="settings" class="icon" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-view">⚙</button>
+        <button id="close" class="icon" title="Minimize" aria-label="Minimize chat">−</button>
+      </header>
+      <div id="session-menu" class="session-menu" aria-label="10 latest sessions" hidden><p class="fine">10 latest sessions</p><div id="sessions"></div></div>
+      <div id="login-view" class="login-view"><span class="eyebrow">YOUR COMPANION, CONNECTED</span><h2>Make yourself at home.</h2><p>Enter the password from your Jarvis Server <code>.env</code> to connect.</p><form id="login-form"><label for="password">Server password</label><input id="password" type="password" autocomplete="current-password" required placeholder="Your Jarvis Server password"><button class="primary" type="submit">Connect to Jarvis <span>↗</span></button></form><p class="fine">Your provider credentials stay on the server.</p></div>
+      <div id="connected-view" hidden>
+        <nav class="tabs" aria-label="Jarvis tools"><button id="chat-tab" class="tab selected" aria-pressed="true">Conversation</button><button id="knowledge-tab" class="tab" aria-pressed="false">Knowledge <span id="knowledge-dot" class="small-dot"></span></button></nav>
+        <div id="chat-view">
+          <div id="messages" class="messages" role="log" aria-label="Conversation messages"></div>
+          <div id="live" class="live" hidden><span class="small-dot"></span><span id="live-text">Jarvis is thinking…</span></div>
+          <div id="permissions" class="permissions"></div>
+          <form id="chat-form" class="composer"><label class="sr-only" for="prompt">Message Jarvis</label><textarea id="prompt" rows="2" maxlength="16000" placeholder="Ask a question, or share an idea…" required></textarea><div class="composer-footer"><span id="model-label">Your OpenCode model</span><button id="stop" class="text-button" type="button" hidden>■ Stop</button><button id="send" class="send" type="submit" aria-label="Send message">↑</button></div></form>
+          <p class="chat-footnote">Grounded in your knowledge. Honest about what’s missing.</p>
+        </div>
+        <div id="knowledge-view" class="knowledge-view" hidden>
+          <div class="section-heading"><div><span class="eyebrow">A PLACE FOR WHAT MATTERS</span><h2>Your knowledge</h2></div><button id="refresh-documents" class="icon" aria-label="Refresh documents">↻</button></div>
+          <p id="knowledge-status" class="fine">Text, Markdown and text-based PDF · up to 10 MB</p>
+          <form id="upload-form"><label class="file-picker" for="file">＋ Bring a document<input id="file" type="file" accept=".txt,.md,.pdf" required></label><div class="field-grid"><label>Source key<input id="source-key" required placeholder="games/harbor/base" maxlength="200"></label><label>Title<input id="source-title" required placeholder="Harbor rules" maxlength="300"></label><label>Game (optional)<input id="game" placeholder="Harbor Traders"></label><label>Edition (optional)<input id="edition" placeholder="base"></label></div><button class="primary" type="submit">Add to knowledge <span>↗</span></button></form>
+          <p id="import-progress" class="fine" role="status"></p><div id="documents" class="documents"></div>
+          <p class="fine">Sources are stored locally. Retrieved passages go to your cloud model when you ask about them. Editable personal memory is coming later.</p>
+        </div>
+      </div>
+      <section id="settings-view" class="settings-view" aria-label="Settings" hidden>
+        <div class="settings-heading"><h2>Settings</h2><button id="settings-close" class="icon" aria-label="Close settings">×</button></div>
+        <div class="settings-layout"><nav class="settings-nav" aria-label="Settings categories"><button id="connection-settings-tab" class="selected" aria-pressed="true">Connection</button><button id="backend-settings-tab" aria-pressed="false">Backend</button><button id="speech-settings-tab" aria-pressed="false">Speech</button></nav>
+          <div class="settings-content">
+            <section id="connection-settings"><h3>Backend connection</h3><p class="fine">Connect this browser to your Jarvis Server.</p>
+              <form id="connection-form" class="settings-form"><label for="backend-url">Backend URL</label><input id="backend-url" type="url" placeholder="Built-in web proxy"><p class="fine">Leave blank to use this web app’s configured server. Or enter a server origin, such as http://mini-pc:47832.</p><label for="backend-secret">API key / secret</label><input id="backend-secret" type="password" autocomplete="off" placeholder="Jarvis Server password"><p class="fine">The secret is kept only for this browser tab. It is never put in a URL. This is the server secret, not an OpenAI key.</p><button type="submit" class="primary">Save &amp; connect</button></form>
+              <p id="settings-connection-status" class="fine" role="status">Not connected</p><button id="logout" class="text-button" hidden>Disconnect &amp; clear secret</button>
+            </section>
+            <section id="backend-settings" hidden><h3>Backend defaults</h3><p id="backend-settings-note" class="fine">Connect to a backend to configure it.</p>
+              <form id="backend-form" class="settings-form"><fieldset id="backend-fields" disabled><label for="default-model">Default model</label><select id="default-model" required></select><label for="default-agent">Default agent</label><select id="default-agent" required></select><p id="agent-description" class="fine"></p><label class="check-label"><input id="apply-current" type="checkbox" checked> Also apply to this conversation</label><p class="fine">Defaults are shared by this backend and used for new sessions. A running turn must finish before its settings can change.</p><button type="submit" class="primary">Save defaults</button></fieldset></form><p id="backend-save-status" class="fine" role="status"></p>
+            </section>
+            <section id="speech-settings" hidden><h3>Speech</h3><p class="fine">Speech-to-text and text-to-speech will be configured here when browser voice is available.</p><fieldset disabled><label>Speech input<select><option>Not available yet</option></select></label><label>Speech output<select><option>Not available yet</option></select></label></fieldset></section>
+          </div>
+        </div>
+      </section>
+      <p id="error" class="error" role="alert" hidden></p>
+      <div id="source-view" class="source-view" hidden><button id="source-close" class="text-button">← Back</button><h2 id="source-heading"></h2><p id="source-meta" class="fine"></p><pre id="source-text"></pre></div>
+    </section>
+    <button id="pet" class="pet" aria-label="Open Jarvis" aria-expanded="false" aria-controls="panel"><span class="pet-hint">A little help?</span><img src="/pet.svg" alt="Jarvis, a smiling mint-green companion"></button>
+  </div>
+</body>
+</html>

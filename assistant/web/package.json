@@ -1,0 +1,7 @@
+{
+  "name": "jarvis-web",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.16" },
+  "scripts": { "start": "node --env-file=.env dev.mjs", "test": "node --test test/*.test.mjs" }
+}

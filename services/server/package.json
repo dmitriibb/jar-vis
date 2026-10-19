@@ -1,0 +1,11 @@
+{
+  "name": "jarvis-server",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.16" },
+  "scripts": {
+    "start": "node --env-file=.env src/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:live": "node --env-file=.env test/live.mjs"
+  }
+}

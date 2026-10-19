@@ -22,6 +22,7 @@ The design is described in [docs/PLAN.md](docs/PLAN.md). Where the implementatio
 | A full spoken turn with a real model answer | Needs a signed-in opencode provider; see [Troubleshooting](#troubleshooting) |
 | macOS | Written but **not yet built or run on a Mac** |
 | Codex backend (plan M9) | Not implemented |
+| Optional Jarvis Server and browser pet | Implemented: typed chat, live updates, sessions, knowledge uploads and source inspection |
 
 ## Requirements
 
@@ -33,7 +34,9 @@ The design is described in [docs/PLAN.md](docs/PLAN.md). Where the implementatio
     - Windows: `winget install Kitware.CMake LLVM.LLVM`, then set `LIBCLANG_PATH` to `C:\Program Files\LLVM\bin`.
     - macOS: `xcode-select --install` and `brew install cmake`.
 
-## Build and run
+## How to run
+
+### Desktop
 
 ```bash
 cd assistant/app
@@ -79,6 +82,37 @@ console with `jarvisMock.set({ state: "working", detail: "bash: npm test" })`.
 ```bash
 npm run dev
 ```
+
+### Jarvis Server and Web (optional)
+
+Requires Node.js 22.16+. Each component runs locally; Docker is only for PostgreSQL.
+Copy each component's `.env.example` to `.env` before first use (`copy` on Windows, `cp` on macOS/Linux).
+Set a random `JARVIS_SERVER_TOKEN` in `services/server/.env`; enter that password in the browser.
+
+Start your existing OpenCode service:
+
+```sh
+opencode service start
+```
+
+In one terminal, from the repository root:
+
+```sh
+cd services/server
+npm start
+```
+
+In another terminal, from the repository root:
+
+```sh
+cd assistant/web
+npm start
+```
+
+Open [http://localhost:47833](http://localhost:47833) and click the floating pet. No `npm install` is needed for these two packages.
+Use the gear icon for settings: **Connection** configures this browser's backend URL/secret; **Backend** selects the shared default model and agent (`jarvis-home-assistant` by default). Saved defaults survive restarts and can also be applied to the current idle session. Speech settings are reserved for later.
+Chat works without knowledge. To enable document retrieval, start the knowledge service below; the gateway reads its `.env` automatically.
+Desktop continues to work independently. See [Server setup](services/server/README.md) for laptop/LAN settings and [Web setup](assistant/web/README.md) for same-site embedding.
 
 ## First run
 
@@ -276,6 +310,39 @@ avoids that.
 
 **The first installer launch is blocked** — builds are unsigned. On Windows choose More info → Run anyway. On macOS
 right-click the app and choose Open.
+
+## Optional knowledge service (RAG work in progress)
+
+The independently runnable [knowledge service](services/knowledge/README.md) imports text, Markdown and text-based
+PDFs into PostgreSQL/pgvector and exposes keyword search, source inspection, and read-only MCP tools. It does not
+require Jarvis Server or change Desktop startup. The optional [Jarvis Server](services/server/README.md) and
+[browser client](assistant/web/README.md) now support chat and knowledge management. Embeddings and personal
+memory remain later stages in [the implementation plan](plan.agentic-rag.md).
+
+### Run the knowledge service locally
+
+Requires Rust and Docker. From the repository root:
+
+```sh
+cd services/knowledge
+```
+
+Copy `.env.example` to `.env` (`copy .env.example .env` on Windows, `cp .env.example .env` on macOS/Linux), then replace the owner token with your own random value of at least 24 characters.
+
+```sh
+docker compose up -d --wait
+cargo run --locked -- serve
+```
+
+Docker Compose runs only PostgreSQL with pgvector. The knowledge service runs locally at `http://127.0.0.1:47831`; server and CLI commands read `.env` automatically. In a second terminal in the same directory:
+
+```sh
+cargo run --locked -- capabilities
+```
+
+Ctrl+C stops the service. `docker compose stop` stops PostgreSQL and preserves its data. See the [knowledge README](services/knowledge/README.md) for the import/search demo.
+
+Start Jarvis Server and Web with the `npm start` commands under [How to run](#how-to-run). All component configuration uses local `.env` files.
 
 ## Utilities
 
